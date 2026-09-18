@@ -1,8 +1,8 @@
 # hermes-subscription-meter
 
-A subscription-quota dashboard plugin for [Hermes Agent](https://hermes-agent.nousresearch.com): every provider's usage windows rendered as one **time × quota matrix** (84 cells per row), with **provider visibility controlled from the UI** — show or hide each provider yourself, no config-file edits.
+A subscription-quota dashboard plugin for [Hermes Agent](https://hermes-agent.nousresearch.com). This is not a progress bar: weekly quota is measured in time and split into **84 cells** (7 days × 12 cells a day), so how much you have used and how much is left is obvious at a glance, and the color shift tells you the current quota status. When choosing is hard, the plugin automatically ranks **the model it suggests you use first for the problem at hand** at the top.
 
-Unlike a plain percentage list, each row is a dual-window grid: the horizontal axis is elapsed time in the billing window, the vertical fill is consumed quota — so "how fast am I burning this" and "how much is left before the wall" are readable at a glance. Rows can pair a weekly window with a 5-hour session window side by side.
+**Provider visibility is controlled from the UI** — show or hide each provider yourself, no config-file edits.
 
 ## Screenshot
 
@@ -43,7 +43,7 @@ Anything detected but lacking a fetcher is shown as `no_fetcher` rather than sil
 
 ## How it works
 
-- `plugin.js` — the desktop panel: the 84-cell matrix, balance bars, priority sorting, and the per-provider visibility toggles (persisted per profile in plugin settings).
+- `plugin.js` — the desktop panel: the 84-cell matrix, balance bars, automatic ranking of the model it suggests you use first, and the per-provider visibility toggles (persisted per profile in plugin settings).
 - `backend/plugin_api.py` — a FastAPI router that turns credentials into provider-neutral quota rows. Secrets stay in memory only; they never appear in API responses, logs or error strings.
 - `tests/` — 84 frontend tests (node:test) + 110 backend tests (pytest).
 
