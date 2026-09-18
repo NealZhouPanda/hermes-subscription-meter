@@ -3,7 +3,7 @@
   "label": "订阅额度",
   "description": "桌面订阅额度看板后端：CodexBar 周额度 + DeepSeek 余额/消费。",
   "icon": "Server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "tab": {
     "hidden": true,
     "path": "/subscription-meter"
