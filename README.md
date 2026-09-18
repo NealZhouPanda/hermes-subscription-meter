@@ -4,10 +4,9 @@ A subscription-quota dashboard plugin for [Hermes Agent](https://hermes-agent.no
 
 Unlike a plain percentage list, each row is a dual-window grid: the horizontal axis is elapsed time in the billing window, the vertical fill is consumed quota — so "how fast am I burning this" and "how much is left before the wall" are readable at a glance. Rows can pair a weekly window with a 5-hour session window side by side.
 
-<!-- Screenshot placeholder: replace with a real screenshot before publishing.
-     Expected file: docs/images/matrix.png (do NOT commit screenshots containing
-     real personal quota numbers). -->
-![Subscription meter matrix](docs/images/matrix.png)
+## Screenshot
+
+Screenshot coming soon — a rendered panel capture will be added here in a future update (will live at `docs/images/matrix.png`).
 
 ## Install
 
@@ -65,6 +64,10 @@ python -m pytest tests/
 The backend test suite runs fully offline: every test gets a temp `HERMES_HOME` and outbound sockets are blocked by fixtures in `tests/conftest.py`.
 
 `docs/dev/` contains the design-review notes from the provider-neutral refactor. `diagnostics/` holds small local debugging scripts used during development.
+
+## Contact
+
+Questions / issues / collaboration: nealzhou.panda@gmail.com
 
 ## License
 
