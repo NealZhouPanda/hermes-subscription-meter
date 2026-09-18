@@ -1,0 +1,12 @@
+name: subscription-meter
+kind: standalone
+version: 0.1.0
+description: 订阅额度看板：供应方可自助显隐，套餐显示 84 格，账户显示余额。
+provides_tools: []
+config_schema:
+  type: object
+  properties:
+    visibility:
+      type: object
+      additionalProperties:
+        type: boolean

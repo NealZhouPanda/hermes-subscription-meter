@@ -1,0 +1,97 @@
+这是第 2 轮，也是最后一轮：上一轮你给了设计评审，我给反馈，请你收敛成定稿。不改方向、不扩范围，只把契约和步骤钉死。
+
+=== 你上一轮的输出 ===
+**不同意你方案的核心：把「一家一条描述符」当唯一真源，再让前端按 `windowSeconds` 改格数，是把三件不同的事捆死了。** 通用化边界不是「装上就能显示全世界」，是「新增适配器只碰一处注册；缺事实必须响，不许默默少画」。
+
+## 1. 错、脆弱、过度
+
+**(1) 「一家一个条目」是假抽象。** 现实是产品/端点/置信度三层：`xai-` 推理 key ≠ Management 余额；`minimax-cn` ≠ `minimax`；DashScope 推理 key ≠ 阿里云 AK。detect 也不能收成无序的 `[前缀, OAuth, env]`：前缀按长度竞争，OAuth 靠 host id，env 槽位只是弱先验。压成一条会同时放大误认和漏认。识别表与取数表必须能独立存在（有身份无 fetcher = 已有的 `no_fetcher`）。
+
+**(2) 短窗份额 / 高峰 / 品牌色不是同类事实，不该进同一描述符，更不该每行都带。** 份额是两行之间的量纲换算，真源是两行的绝对值 `limit`（能算就算）；算不出才由**吐出这两行的同一个 fetcher** 写在周期行上。高峰是定价/限流注解，API 几乎不给、还绑时区，塞进余额行/短窗行是噪声。accent 是皮肤，挡不了取数契约。`shared_sources` 白名单写死 `codex/grok` 同属漏一处。
+
+**(3) 反对按窗口改矩阵格数。** 84 格是对齐用的视觉语法，不是「7 天」的数据模型。格数随窗变：月窗爆炸、多行对不齐、5h 变成短条，和「短窗只作家属、不单独成行」的产品决策冲突。正确：N 恒定，格时值 = `windowSeconds/N`；日线仅当窗口是整日倍数。前端用 `windowSeconds===18000` 找兄弟，和漏 `MINIMAX` 键是同一类硬编码，必须死。`windowSeconds` 缺失时默当 7 天，也是静默撒谎。
+
+**(4) 「前端不认识任何供应商名」过纯。** visibility / 共享源 / 去重 / 兄弟配对仍要稳定 `providerId`。中立的是几何和配色，不是抹掉身份。`compactWindowLabel` 啃英文词同样要换成行上的 `role`。
+
+**(5) 不要承诺探测任意中转 `/usage`。** 无适配器就无正确数字。一致性测试不要对照真名单。
+
+## 2. 分层与数据流
+
+```
+凭据发现                 识别(有序,不发网)              取数                         规范化                    渲染
+.env/auth.json      →  前缀 > OAuth > ledger     →  Fetcher                   →  MeterRow[]             →  固定 N 格
+ledger/registry        槽位弱先验 > registry         可调宿主 account_usage        周期行 + burst 家属        burst 不单独成行
+只收集,不分类            产出 Identity                 返回快照(used/limit/reset)    burstShare/peak/accent    缺字段 → 明示,不画假
+                         (id, fetcher|∅, status)     不知皮肤                     唯一跨端契约               只比 id 相等,不查名表
+```
+
+发现不分类；识别不发网；取数不知皮肤；**规范化是唯一行契约**；渲染不查供应商表。Identity id 是产品级（`minimax-cn`、`xai`），不是厂牌级。
+
+## 3. 四个决策
+
+**a. 形态：单模块 dataclass 注册表**（detect 规则 + fetch 引用 + 显示默认）。不要 YAML/JSON——取数必须是代码，一拆又散。不要 `providers/*.py`——十来家、独立仓靠 PR，文件爆炸无收益。类型靠 dataclass + pytest。宿主不可改，别幻想描述符被核心复用；对外复用面是 MeterRow JSON。保留 `globals()` 这条 monkeypatch 缝。
+
+**b. 套餐事实：API 绝对值 > fetcher 声明默认 > 暂不做用户覆盖。** 不表达 = MiniMax 验收失败。高峰无 API 就写在 fetcher meta，**必须带 timezone**，禁止前端写死 UTC+8。色：`hash(id)` 默认 + meta 可盖。设置项等真出现分档再做。
+
+**c. 无适配器：停在 settings 的 `unrecognized` / `no_fetcher`，看板不占行。** 禁止 OpenAI 兼容盲探。中转 key 前缀能认上游但无 fetcher → `no_fetcher`，不要假装余额行。
+
+**d. 插件自建 MeterRow；`account_usage` 只是一种 fetcher 实现。** 宿主形状不进前端。宿主新增供应商不会自动成行——刻意的，宿主字段不够 burst/reset。
+
+## 4. 迁移（可独立验收，禁大爆炸）
+
+- **S1** 行契约加可选 `role` / `limit` / `burstShare` / `peak` / `accent`；只让 MiniMax fetcher 填。前端新字段优先、旧表兜底。验收：锁定段出现。
+- **S2** 删 `SHORT_WINDOW_RATIO` / `PEAK_RULES` / `ACCENTS` / `18000` / 7 天默认。缺 `burstShare` 改警告。紧接 S1。
+- **S3** 后端 7 表收成 `FetcherSpec`，**不搬家函数体**。可与 S1 并行。
+- **S4** MiniMax CN/Global 共用规范化，只差 base。证明一家多端点。
+- **S5** 去 7 天假设；日线按整日倍数；格数不动。
+
+禁止同一 PR 改契约又改所有 `_fetch_*`。
+
+## 5. 验收（证明通用化，不是证明名单变长）
+
+- 假供应商 ZETA：10 天窗 + 3h burst + share 0.12，前端零名表，锁定格正确。
+- burst 在而 share/limit 缺 → 明示，锁定格 ≠ 静默 0。
+- `windowSeconds` 缺 → 不按周画，明示。
+- 月窗仍 84 格有日线；非整日窗无日线；burst 不单独成行。
+- 只加 Spec+函数、前端不改，新供应商能画。
+- matcher 无 fetcher → 仅 settings；未识别 key → `unrecognized` 无行。
+- 同厂两产品（xai / xai-inference）不合并。
+- `account_usage` 失败走插件 fallback，仍是 MeterRow。
+- Spec：能吐 burst 则必须有绝对值或 share；`shareable` 在 Spec 上，不写死两家。
+- 渲染测试用随机窗口，禁用真名表。
+
+
+# 我（实现方）对你这轮的反应
+接受的（我原方案里错的）：格数不该随窗口变（N 恒定、格时值随窗变、日线仅整日倍数）；份额不是前端/后端硬表，
+而是"两行绝对值能算就算，算不出由吐这两行的同一 fetcher 声明"；高峰/色属于 meta 层不是每行字段；
+"前端不认识任何供应商名"要收窄成"前端不查供应商特例表"（身份 id 仍用于配对/去重/可见性）；
+不承诺探测任意中转端点。
+
+要你确认或补强的 6 点：
+1. `shared_sources` 白名单写死 codex/grok（你已指出）→ 我打算变成 spec 上的 `shareable: bool`，且共享只影响
+   取数来源、不影响显示。你同意这是同一类"漏一处"吗？还有哪些地方藏着同类硬编码（我已知：前端 `windowSeconds===18000`
+   找兄弟、`compactWindowLabel` 啃英文词、`CELL_COUNT=84/HOURS_PER_CELL=2` 的 12 格日线、`DEEPSEEK_TZ_SECONDS` 写死 UTC+8、
+   `ACCENTS` 品牌色）？
+2. 短窗配对：我打算用 `providerId` 相等 + `role`（`'primary' | 'burst'`）配对，不再用 magic number 18000。
+   行上还需要什么才能让前端"零特例"地画出锁定段？（我目前理解：primary 行要能拿到 burst 行的 used/reset
+   + 份额或两行 limit 绝对值。）
+3. "缺事实必须响"：现有设置页已有 `status/actionHint`（unknown/unconfigured/ok/partial/auth_error/request_error/
+   unrecognized/no_fetcher）。我打算把"识别到了但画不出"的全部落在这个通道 + 看板行上给出可读原因。
+   你认为哪几种情况必须在**看板行内**响（而不只是设置页）？
+4. 验收要两组：① 通用性（你说的假供应商 ZETA，随机窗口/份额，前端零名表）② 不回归（MiniMax 周+5h、
+   Kimi 周+5h、Codex 周+5h 的锁定段与排序与今天一致）。第二组你会怎么钉才不是 change-detector？
+5. 这台机器的操作约束：前端 plugin.js 是目录热重载（保存即生效），后端 plugin_api.py 改动必须**重启桌面 App**
+   才生效（插件路由在 web_server 导入时挂载）。这对迁移步骤的切分有什么影响？S1（后端加字段 + 前端优先读新字段、
+   旧表兜底）在"必须重启 App"的前提下怎么排最不容易让用户看到红panel？
+6. 用户（项目所有者）是中文母语个人开发者，开源面向英文社区。契约字段命名、`role` 这类词，有没有更好的命名？
+
+# 请给最终定稿（严格按下面 4 段，中文，不要重复上一轮说过的理由，全文 ≤1600 字）
+## 1. MeterRow 定稿字段表
+表格：字段 / 必填或可选 / 语义 / 谁填（fetcher 还是规范化层）/ 前端怎么用。只列与"通用化"相关的字段，
+已有的（usedPercent/resetAt/balance/...)不必重列，但要说清哪些字段语义要改。
+## 2. FetcherSpec（后端注册表条目）定稿字段表
+同上。说明 detect 规则组怎么组织（前缀/OAuth/env/ledger 四类如何共存且有序），以及"身份 ≠ 取数"如何表达。
+## 3. 迁移步骤定稿（每步 ≤3 行）
+每步：改什么 / 验收观察点 / 风险。标注哪些步骤受"后端改动要重启 App"影响。
+## 4. 我们仍不一致的点
+逐条：你的立场 / 建议怎么定 / 一句话理由。没有就写"无"。

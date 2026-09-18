@@ -1,0 +1,716 @@
+你正在和我（另一个 AI，负责这个项目的实现）一起做架构设计。这是第 1 轮：请批判性设计。
+上一轮你做的是代码评审，这次是设计对撞 —— 不要复述评审结论，聚焦"底层逻辑该怎么建"。
+
+# 项目
+Hermes Agent（跨 CLI/网关/桌面 App 的 agent 框架）的一个插件：桌面额度看板。
+- 前端：`plugin.js`，无构建 ESM，只能 import `@hermes/plugin-sdk` / `react` / `react/jsx-runtime`；
+  通过 `ctx.rest('/path')` 打自己后端；插件 API 挂在 `/api/plugins/<id>`。
+- 后端：Python FastAPI 插件（`plugin_api.py`），跑在宿主进程里，可 import 宿主的内部模块
+  （`hermes_constants`、`hermes_cli.auth.PROVIDER_REGISTRY`、`hermes_cli.plugins`）。
+- 宿主有原生 `account_usage` 能力（OpenAI Codex / xAI OAuth 等订阅用量），本插件已经在用。
+- 插件是独立仓库形态，宿主核心不可改。
+
+# 用户诉求（原话）
+"不同人会有不同的模型 api 或者订阅，我需要的是建立一个底层逻辑，你们总说要修 minimax 如果只是修改 minimax 的话没意义，是改正插件逻辑，让他能显示好 minimax"
+
+解读：**通用化**——任何人装上后，用他自己的 API key / OAuth 订阅 / 余额账户，各家供应商都能被自动发现并正确显示；
+新增一家供应商的边际成本要低；MiniMax（周窗 + 5h 短窗两块额度）是这次重构的验收案例。
+用户是个人开发者，中文母语，开源面向英文社区。
+
+# 现状：同一事实散在 10 处
+后端 7 处：`KEY_RULES`(key 前缀→供应商) / `OAUTH_RULES`(OAuth provider→供应商) / `_LEDGER_ENV_RULES` /
+`_ENV_SLOT_FETCHER`(env 槽位弱先验) / `_FETCHER_NAMES`(id→函数) / `_FETCHER_META`(id→label,kind) / `_ACTION_HINTS`(提示文案)
++ 每家一个 `_fetch_*` 函数。
+前端 3 处：`SHORT_WINDOW_RATIO`(5h÷周比例，按供应商名写死) / `PEAK_RULES`(高峰时段，写死 GLM+DEEPSEEK) / `ACCENTS`(品牌色)。
+另有前端硬假设：84 格矩阵、每格 2 小时、12 格一天（=7 天周窗专用；遇到 5h 窗或月窗语义就错）。
+失效样本：后端已经能吐 MiniMax 的周窗行 + 5h 行，前端比例表漏了 MINIMAX 键 → **不报错、不提示，静默少画锁定段**。
+同类风险：加第二家、第三家供应商时这种"漏一处"必然重演。
+
+# 我的方案（三层）
+1) **供应方描述符 = 后端唯一真源**，一家一个条目：`id/label/kind(quota|balance)/accent`、
+   `detect:[key 前缀, OAuth provider id, env 槽位]`、`fetch: 函数`、`windows: 周期 + 短窗份额(5h÷周) + 高峰时段`。
+2) **中立数据契约 = 每行自描述**：行里直接带 `windowSeconds`、`resetAt`、`shortWindowShare`(有短窗才有)、
+   `peakWindows`、`accent`；前端不认识任何供应商名。
+3) **前端只做通用渲染**：矩阵格数/日分界线按 `windowSeconds` 推导（不再是固定 84 格/2h）；
+   有短窗兄弟行 → 按 share 画锁定段；有 peakWindows → 胶囊 + 排序惩罚；有余额 → 余额行。
+
+防"静默降级"：描述符一致性测试（每条必须齐 detect/fetch/label/accent，有短窗必须给 share）；
+渲染契约测试用**假供应商 id + 随机窗口长度**跑，不依赖真名单；事实缺失时显式提示而不是默默不画。
+
+# 请回答（中文，务实，不要客套，明确说出你不同意我的地方）
+1. 我方案里**错、脆弱或过度设计**的地方，逐条指出。
+2. 你建议的分层与数据流（给 ASCII 图）：数据从凭据 → 识别 → 取数 → 行契约 → 渲染，各层职责边界。
+3. 四个具体决策，各给**你的选择和理由**：
+   a. 描述符的物理形态：Python 模块（providers/*.py，每家一个文件）vs 数据文件（YAML/JSON + 少量代码）？
+      权衡贡献者门槛、类型安全、能否被宿主/其他工具复用。
+   b. "套餐事实"（短窗份额 5h÷周、高峰时段、品牌色）这类**各家不同、且会随档位变**的数据，从哪来最诚实？
+      硬编码默认值 / 用户可覆盖的配置 / 尽量从 API 响应推断 / 干脆不表达？请给取舍。
+   c. 没有任何适配器的供应商（用户拿第三方中转 key、自建端点）应该怎么被对待？
+   d. 与宿主 `account_usage` 的关系：自建中立契约，还是把宿主的数据形状当成契约、插件只做补充？
+4. **迁移路径**：如何从现状渐进重构到目标（分几步、每步可独立验证、不出现大爆炸式重写），
+   以及哪些步骤可以并行/互不阻塞。
+5. **验收测试清单**：证明"通用化真的做到了"的一组测试（含针对"漏一处静默降级"的防御性测试）。
+
+全文不超过 2200 字。不要写代码实现，只写设计与决策。
+
+现状源码关键片段（供你判断，不要逐行复述）：
+--- backend plugin_api.py header (lines 1-20) ---
+"""Subscription-meter backend — provider-neutral quota rows for the desktop meter.
+
+Display visibility lives in plugins.entries.subscription-meter.settings.
+Quota providers emit one 84-cell row per usage window; balance providers emit
+an account row. Native Hermes account_usage is preferred when available.
+
+条目不再由死名单驱动：发现层从 Hermes 供应方登记（PROVIDER_REGISTRY 的
+api_key_env_vars）、当前 profile 的 auth.json（已登录 OAuth）与账本键收集
+候选凭据；识别顺序 = KEY_RULES 规则表（key 前缀 / OAuth provider id）→
+env 槽位弱先验猜测 → 规则取数明显失败回退猜测 → unrecognized；已识别但
+无取数适配器 → no_fetcher。secret 只留在内存，绝不进入 API 响应/日志/错误串。
+
+Credential sources:
+- KIMI   : api.kimi.com/coding/v1/usages
+- GLM    : open.bigmodel.cn .../quota/limit
+- CODEX  : Hermes account_usage (openai-codex), fallback chatgpt.com usage
+- GROK   : Hermes account_usage (xai-oauth), fallback cli-chat-proxy billing
+- DEEPSEEK: api.deepseek.com balance + platform cost
+- XAI    : xAI Management API prepaid balance (not the inference API key)
+"""
+
+--- backend constants (lines 42-72) ---
+CACHE_TTL_SECONDS = 120
+from hermes_constants import get_hermes_home
+CODEX_AUTH = Path.home() / ".codex" / "auth.json"
+TOKEN_HELPER = Path(__file__).resolve().parent / "scripts" / "deepseek_platform_token.js"
+NODE_BIN_CANDIDATES = ("/opt/homebrew/bin/node", "/usr/local/bin/node", "node")
+
+KIMI_USAGE_URL = "https://api.kimi.com/coding/v1/usages"
+GLM_QUOTA_URL = "https://open.bigmodel.cn/api/monitor/usage/quota/limit"
+CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+GROK_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
+DEEPSEEK_COST_URL = "https://platform.deepseek.com/api/v0/usage/by_api_key/cost"
+# MiniMax Token Plan（订阅套餐）用量：只有套餐 Key 能查的开放平台端点，CN/全球
+# base 共用同一路径（2026-09-12 实测：CN 真 key → status_code=0 带 model_remains；
+# 全球 base 无效 key → 1004 cookie is missing，即路径有效、只是鉴权失败）。
+MINIMAX_CN_BASE = "https://api.minimaxi.com"
+MINIMAX_GLOBAL_BASE = "https://api.minimax.io"
+MINIMAX_PLAN_REMAINS_PATH = "/v1/api/openplatform/coding_plan/remains"
+ALIYUN_BSS_ENDPOINT = "https://business.aliyuncs.com/"
+ALIYUN_BSS_VERSION = "2017-12-14"  # BssOpenApi QueryAccountBalance
+DEEPSEEK_TZ_SECONDS = 8 * 60 * 60
+WEEKLY_SECONDS = 7 * 86400
+FIVE_HOUR_SECONDS = 5 * 3600
+
+# KIMI payload 里 window.timeUnit 的秒换算表（2026-09-09 实测口径）。
+KIMI_TIME_UNIT_SECONDS = {
+    "TIME_UNIT_MINUTE": 60,
+    "TIME_UNIT_HOUR": 3600,
+    "TIME_UNIT_DAY": 86400,
+}
+
+
+--- backend row contract + provider tables (lines 76-200) ---
+class MeterRow(BaseModel):
+    id: str
+    providerId: str = ""
+    accountId: str = "default"
+    label: str
+    kind: str = "quota"
+    windowLabel: Optional[str] = None
+    windowSeconds: Optional[int] = None
+    usedPercent: float = 0.0
+    resetAt: Optional[float] = None
+    balanceTone: Optional[str] = None
+    todayTone: Optional[str] = None
+    sevenDayTone: Optional[str] = None
+    thirtyDayTone: Optional[str] = None
+    currency: Optional[str] = None
+    balance: Optional[float] = None
+    todaySpend: Optional[float] = None
+    sevenDaySpend: Optional[float] = None
+    thirtyDaySpend: Optional[float] = None
+    error: Optional[str] = None
+    status: str = "unknown"
+    actionHint: str = ""
+    checkedAt: Optional[float] = None
+
+
+class MeterPayload(BaseModel):
+    rows: list[MeterRow] = Field(default_factory=list)
+    generatedAt: float = 0.0
+
+
+class ProviderSetting(BaseModel):
+    id: str
+    label: str
+    kind: str
+    enabled: bool = True
+    status: str = "unknown"
+    actionHint: str = ""
+    checkedAt: Optional[float] = None
+
+
+class ProviderSettingsPayload(BaseModel):
+    providers: list[ProviderSetting] = Field(default_factory=list)
+
+
+class ProviderVisibilityUpdate(BaseModel):
+    enabled: bool
+
+
+# --- A/B/C. 发现 + 识别（数据表，非显示名单） ----------------------------------
+#
+# KEY_RULES：按 secret 前缀认供应方，更具体的前缀优先。只收高置信前缀
+# （Hermes 源码/官方文档可查证的形态）；认不出的走猜测或 unrecognized。
+KEY_RULES = (
+    ("sk-ant-oat", "anthropic", "quota", "ANTHROPIC"),  # claude setup-token 的 OAuth token 形态
+    ("sk-ant-", "anthropic", "quota", "ANTHROPIC"),
+    ("sk-kimi-", "kimi", "quota", "KIMI"),              # Kimi Coding Plan（auth.py 注释确认）
+    ("sk-or-", "openrouter", "balance", "OPENROUTER"),
+    ("sk-ws-", "qwen-dashscope", "quota", "QWEN DASHSCOPE"),  # 百炼推理 key，≠ 阿里云 AccessKey 余额
+    ("xai-", "xai-inference", "quota", "XAI API"),      # xAI 推理 key，≠ Management 预付余额
+    ("LTAI", "qwen", "balance", "QWEN"),                # 阿里云 AccessKey ID
+)
+
+# OAuth 凭据用 auth.json 的 provider id 认，不靠前缀。
+OAUTH_RULES = {
+    "openai-codex": ("codex", "quota", "CODEX"),
+    "xai-oauth": ("grok", "quota", "GROK"),
+    "nous": ("nous", "balance", "NOUS"),
+}
+
+# 取数逻辑依赖的额外账本键：env 名本身就是身份（不是推理 key）。
+_LEDGER_ENV_RULES = {
+    "XAI_MANAGEMENT_API_KEY": ("xai", "balance", "XAI"),
+    "ALIBABA_CLOUD_ACCESS_KEY_ID": ("qwen", "balance", "QWEN"),
+}
+
+# env 槽位弱先验 → 已有取数适配器（仅猜测用，不是身份）。
+_ENV_SLOT_FETCHER = {
+    "KIMI_API_KEY": "kimi",
+    "KIMI_CODING_API_KEY": "kimi",
+    "KIMI_CN_API_KEY": "kimi",
+    "GLM_API_KEY": "glm",
+    "ZAI_API_KEY": "glm",
+    "Z_AI_API_KEY": "glm",
+    "DEEPSEEK_API_KEY": "deepseek",
+    "MINIMAX_CN_API_KEY": "minimax-cn",
+    "MINIMAX_API_KEY": "minimax",
+}
+
+# D. 取数适配器注册表：id → 模块内函数名（调用时经 globals() 解析，
+# 保留 monkeypatch 接缝）。以后维护「各家 API 逻辑」只动这里和 _fetch_*。
+_FETCHER_NAMES = {
+    "kimi": "_fetch_kimi",
+    "glm": "_fetch_glm",
+    "codex": "_fetch_codex",
+    "grok": "_fetch_grok",
+    "xai": "_fetch_xai",
+    "nous": "_fetch_nous",
+    "qwen": "_fetch_qwen",
+    "deepseek": "_fetch_deepseek",
+    "minimax-cn": "_fetch_minimax_cn",
+    "minimax": "_fetch_minimax_global",
+}
+
+_FETCHER_META = {
+    "kimi": ("KIMI", "quota"),
+    "glm": ("GLM", "quota"),
+    "codex": ("CODEX", "quota"),
+    "grok": ("GROK", "quota"),
+    "xai": ("XAI", "balance"),
+    "nous": ("NOUS", "balance"),
+    "qwen": ("QWEN", "balance"),
+    "deepseek": ("DEEPSEEK", "balance"),
+    "minimax-cn": ("MINIMAX", "quota"),
+    "minimax": ("MINIMAX", "quota"),
+}
+
+# hermes_cli 不可导入时的兜底槽位清单（仍是固定已知键，不扫全部 .env）。
+_FALLBACK_ENV_SLOTS = (
+    "KIMI_API_KEY", "KIMI_CODING_API_KEY", "GLM_API_KEY", "ZAI_API_KEY",
+    "DEEPSEEK_API_KEY", "XAI_API_KEY", "DASHSCOPE_API_KEY",
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+)
+
+_UNRECOGNIZED_HINT = "无法识别该 API key 对应的供应方；请检查当前 profile 的 .env 配置。"
+_NO_FETCHER_HINT = "已识别供应方，但暂无取数适配器；条目可开关，看板不占行。"
+
+--- backend discovery/identification pipeline (lines 264-400) ---
+def _match_key_rule(secret: str) -> tuple[str, str, str] | None:
+    """B. 规则表匹配，更具体的前缀优先。返回 (provider_id, kind, label)。"""
+    best: tuple[int, str, str, str] | None = None
+    for prefix, provider_id, kind, label in KEY_RULES:
+        if secret.startswith(prefix) and (best is None or len(prefix) > best[0]):
+            best = (len(prefix), provider_id, kind, label)
+    return best[1:] if best else None
+
+
+def _identity(
+    provider_id: str, label: str, kind: str, fetcher_id: Optional[str],
+    via: Optional[str], key: str, env_name: Optional[str], secret: str,
+) -> dict[str, Any]:
+    if fetcher_id is None:
+        status = "unrecognized" if via is None else "no_fetcher"
+    else:
+        status = "unknown"
+    return {
+        "id": provider_id, "label": label, "kind": kind, "fetcher_id": fetcher_id,
+        "via": via, "key": key, "env_name": env_name, "secret": secret, "status": status,
+    }
+
+
+def _classify_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    """识别流水线的静态部分（步骤 1/2，不发网络请求）：
+    OAuth 按 auth.json provider id；env 先规则表、再槽位弱先验。"""
+    source = candidate["source"]
+    if source == "oauth":
+        auth_provider = candidate["auth_provider"]
+        provider_id, kind, label = OAUTH_RULES.get(
+            auth_provider, (auth_provider, "quota", auth_provider.upper()))
+        fetcher_id = provider_id if provider_id in _FETCHER_NAMES else None
+        return _identity(provider_id, label, kind, fetcher_id, "oauth",
+                         f"oauth:{auth_provider}", None, "")
+    if source == "ledger":
+        provider_id, kind, label = _LEDGER_ENV_RULES[candidate["env_name"]]
+        fetcher_id = provider_id if provider_id in _FETCHER_NAMES else None
+        return _identity(provider_id, label, kind, fetcher_id, "ledger",
+                         f"env:{candidate['env_name']}", candidate["env_name"], candidate["secret"])
+    # env 候选：规则表优先（槽位不是身份）。
+    rule = _match_key_rule(candidate["secret"])
+    if rule:
+        provider_id, kind, label = rule
+        fetcher_id = provider_id if provider_id in _FETCHER_NAMES else None
+        return _identity(provider_id, label, kind, fetcher_id, "rule",
+                         f"env:{candidate['env_name']}", candidate["env_name"], candidate["secret"])
+    # 步骤 2：槽位弱先验猜测（取数形态校验在 build_payload 的探测里做）。
+    fetcher_id = _ENV_SLOT_FETCHER.get(candidate["env_name"])
+    if fetcher_id:
+        label, kind = _FETCHER_META[fetcher_id]
+        return _identity(fetcher_id, label, kind, fetcher_id, "slot",
+                         f"env:{candidate['env_name']}", candidate["env_name"], candidate["secret"])
+    # Hermes 登记槽位已经能认出是哪家：没有取数适配器 → no_fetcher，不是 unrecognized。
+    registry_id = str(candidate.get("registry_id") or "").strip()
+    if registry_id:
+        fetcher_id = registry_id if registry_id in _FETCHER_NAMES else None
+        if fetcher_id:
+            label, kind = _FETCHER_META[fetcher_id]
+            provider_id = fetcher_id
+        else:
+            provider_id = registry_id
+            label = candidate.get("registry_name") or registry_id
+            kind = "quota"
+        return _identity(
+            provider_id, label, kind, fetcher_id, "slot",
+            f"env:{candidate['env_name']}", candidate["env_name"], candidate["secret"])
+    return _identity(
+        candidate["env_name"].lower(),
+        candidate["env_name"],
+        "quota", None, None,
+        f"env:{candidate['env_name']}", candidate["env_name"], candidate["secret"])
+
+
+# 显式共享白名单：仅这两个订阅账户允许跨 profile 共享额度读取（profile 级 opt-in）。
+_SHARED_SOURCE_PROVIDERS = ("codex", "grok")
+
+
+def _shared_source_home(source: str) -> Path:
+    if source == "default":
+        return Path.home() / ".hermes"
+    return Path.home() / ".hermes" / "profiles" / source
+
+
+def _shared_source_map() -> dict[str, str]:
+    """当前 profile 插件设置里的显式数据源映射 provider id → 源 profile 名。
+
+    无映射 → 空 dict（行为与之前完全一致）；仅白名单 provider 生效；
+    源目录不存在或映射到自身时跳过，不做模糊猜测。
+    """
+    raw = _read_plugin_settings().get("shared_sources")
+    if not isinstance(raw, dict):
+        return {}
+    result: dict[str, str] = {}
+    for provider_id, source in raw.items():
+        if provider_id not in _SHARED_SOURCE_PROVIDERS:
+            continue
+        if not isinstance(source, str) or not source.strip():
+            continue
+        home = _shared_source_home(source.strip())
+        if not home.is_dir() or home.resolve() == get_hermes_home().resolve():
+            continue
+        result[provider_id] = source.strip()
+    return result
+
+
+def _identify_all() -> list[dict[str, Any]]:
+    """发现 + 静态识别，按 provider id 去重（先发现者优先）。
+
+    shared_sources 显式映射优先于本 profile 本地候选（冲突时以映射为准），
+    并为映射 provider 注入 shared 身份，使发现门控与取数来源一致。
+    """
+    shared = _shared_source_map()
+    identities: list[dict[str, Any]] = []
+    seen: set[str] = set(shared)
+    for candidate in _discover_credentials():
+        identity = _classify_candidate(candidate)
+        if identity["id"] in seen:
+            continue
+        seen.add(identity["id"])
+        identities.append(identity)
+    for provider_id, source in shared.items():
+        label, kind = _FETCHER_META[provider_id]
+        identities.append(
+            _identity(provider_id, label, kind, provider_id, "shared",
+                      f"shared:{source}", None, "")
+        )
+    return identities
+
+
+def _resolve_fetcher(fetcher_id: str):
+    name = _FETCHER_NAMES.get(fetcher_id)
+    return globals().get(name) if name else None
+
+
+def _read_plugin_settings() -> dict[str, Any]:
+    try:
+        from hermes_cli.config import read_user_config_raw
+
+--- backend build_payload (lines 1565-1590) ---
+def build_payload() -> MeterPayload:
+    """只对 visibility 开启、识别成功、且有适配器的条目取数。"""
+    now = time.time()
+    cached = _cache["payload"]
+    if cached is not None and now - _cache["at"] < CACHE_TTL_SECONDS:
+        return cached
+
+    settings = _read_plugin_settings()
+    visibility = settings.get("visibility")
+    visibility = visibility if isinstance(visibility, dict) else {}
+    overrides: dict[str, str] = {}
+    rows: list[MeterRow] = []
+    for identity in _identify_all():
+        if visibility.get(identity["id"], True) is False:
+            continue
+        if identity["status"] in ("no_fetcher", "unrecognized") or not identity["fetcher_id"]:
+            continue
+        rows.extend(_fetch_identity_rows(identity, now, overrides))
+
+    payload = MeterPayload(rows=rows, generatedAt=now)
+    _cache["at"] = now
+    _cache["payload"] = payload
+    _cache["identity_overrides"] = overrides
+    return payload
+
+
+
+--- frontend header + constants + provider specials (lines 1-135) ---
+import { Switch, host, PALETTE_AREA, ROUTES_AREA, SIDEBAR_NAV_AREA, useValue } from '@hermes/plugin-sdk'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { jsx, jsxs } from 'react/jsx-runtime'
+
+// Live data from the plugin's own Python backend — Hermes-native credentials
+// only (~/.hermes/.env keys + ~/.codex/auth.json OAuth).
+// No CodexBar CLI involvement by design (2026-08-27).
+// 数据刷新广播：设置面板据此重新读取连接状态。事件失败绝不能影响数据加载本身
+// （非浏览器环境没有 Event 构造器）。
+function emitDataUpdated() {
+  try {
+    window.dispatchEvent(new Event('subscription-meter:data-updated'))
+  } catch {
+    // 环境不支持事件广播时静默跳过。
+  }
+}
+
+const CLOCK_TICK_MS = 10 * 1000
+const REFRESH_MS = 5 * 60 * 1000
+// 活动 profile（2026-09-12 Neal 定：切 profile 必须同步换数）：用 SDK 正式出口
+// host.state.profile（= $activeGatewayProfile，正是决定 ctx.rest 路由到哪个后端的那颗
+// 原子）——组件里 useValue 订阅、一变就重取，不轮询、也不读 App 内部键。
+const CYCLE_MS = 7 * 24 * 60 * 60 * 1000
+const CELL_COUNT = 84
+const HOURS_PER_CELL = 2
+const DAY_CELL_COUNT = 24 / HOURS_PER_CELL
+
+// 响应归属校验：请求发出时的 profile 与回来时不一致 → 这份数据属于上一个 profile，
+// 必须丢弃（否则旧 profile 的数字会画在新 profile 的界面上）。
+function responseProfileIsStale(profileAtStart, currentProfile) {
+  return currentProfile !== profileAtStart
+}
+
+// Cell width caps at its own height so a wide page never stretches the matrix
+// into horizontal bars — extra page width stays as trailing space.
+const CELL_SIZE = '0.75rem'
+const DAY_GAP = '0.35rem'
+const DAY_GAP_COUNT = Math.floor((CELL_COUNT - 1) / DAY_CELL_COUNT)
+const GRID_COLUMN_COUNT = CELL_COUNT + DAY_GAP_COUNT
+const GRID_TEMPLATE_COLUMNS = Array.from({ length: GRID_COLUMN_COUNT }, (_, columnIndex) =>
+  columnIndex > 0 && (columnIndex + 1) % (DAY_CELL_COUNT + 1) === 0
+    ? DAY_GAP
+    : `minmax(0px, ${CELL_SIZE})`
+).join(' ')
+// Compact fixed metadata columns keep all 84-cell matrices vertically aligned.
+// Meta track fits "Reset 6d 23h 59m" + "+19.1 cells" (~140px); quota track fits "100% left".
+const QUOTA_GRID_COLUMNS = '6.5rem 3.75rem 9.5rem minmax(6rem, 1fr)'
+// Below this row width the single-line tracks can no longer fit their text;
+// rows switch to two lines (text line + full-width matrix) instead of truncating.
+const QUOTA_GRID_COLUMNS_NARROW = '5.25rem 3.75rem minmax(0, 1fr)'
+const NARROW_ROW_BREAKPOINT_PX = 28 * 16
+
+function quotaRowLayout(containerWidth) {
+  return containerWidth > 0 && containerWidth < NARROW_ROW_BREAKPOINT_PX ? 'narrow' : 'wide'
+}
+
+function useQuotaRowLayout(ref) {
+  const [layout, setLayout] = useState('wide')
+  useEffect(() => {
+    const node = ref.current
+    if (!node || typeof ResizeObserver !== 'function') return undefined
+    const observer = new ResizeObserver(entries => {
+      const width = entries[0]?.contentRect?.width ?? 0
+      setLayout(quotaRowLayout(width))
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [ref])
+  return layout
+}
+
+// 五色图例配色（2026-09-12 Neal 定，色值取自 Neal 截图逐像素取样）：
+// 绿/蓝各分可用（浅）/受限（深）两档，受限 = 5h 短窗锁定（NOT 高峰）；
+// 橙 = 超额使用。灰 track（已流逝+已消耗）截图图例未画，矩阵仍保留。
+const COLORS = {
+  green: '#14AE68',       // 翠绿：剩余可用额度（未流逝+未消耗+未锁定）
+  greenLocked: '#006935', // 深绿：剩余受限额度（未流逝+未消耗+5h 锁定段）
+  blue: '#28A7E0',        // 天蓝：富余可用额度（已流逝+未消耗+未锁定）
+  blueLocked: '#0A499D',  // 深蓝：富余受限额度（已流逝+未消耗+锁定；现算法锁定段只落
+                          // 在周剩余区末尾，实物格可能为 0，图例仍保留此项）
+  orange: '#F39800',      // 橙：超额使用额度（未流逝+已消耗，不分锁定）
+  track: 'var(--ui-bg-quaternary)',
+  danger: 'var(--ui-danger, #f87171)'
+}
+
+const ACCENTS = {
+  KIMI: COLORS.green,
+  CODEX: COLORS.blue,
+  GLM: COLORS.orange,
+  GROK: '#1DA1F2',
+  NOUS: '#6366F1'
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function quotaCycleMs(subscription) {
+  const seconds = Number(subscription?.windowSeconds)
+  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : CYCLE_MS
+}
+
+// 锁定段比例（2026-09-09 Neal 定）：5h 短窗额度 ÷ 周窗额度，5h 行未用满时
+// 只按这个比例「托底」周剩余；key 用 providerId 大写。grok 等无 5h 行的
+// provider 天然不命中此表 → 不渲染锁定段（现状）。数字不得擅改。
+const SHORT_WINDOW_RATIO = { CODEX: 0.15, GLM: 0.2, KIMI: 0.2 }
+// 日分界线（2026-09-10 Neal 定）：细灰虚线，弱于实线，只作分段参考不抢视觉。
+const DAY_DIVIDER = '1px dashed var(--ui-stroke-secondary)'
+
+// 锁定段格数（2026-09-09）：solidRemaining% = min(周剩余%, 5h兄弟剩余% × 比例)，
+// locked% = 周剩余% − solidRemaining%；换算成 84 格矩阵里剩余区域末尾的格数。
+// 剩余% 以 usedPercent 反推，clamp 到 [0,100] 防御脏数据；无兄弟行/不在比例表
+// /脏 usedPercent → 返回 0 格（不渲染锁定段，现状）。
+function lockedRemainingCellCount(row, sibling) {
+  if (!sibling) return 0
+  const ratio = SHORT_WINDOW_RATIO[String(row.providerId || '').toUpperCase()]
+  if (!Number.isFinite(ratio)) return 0
+  const weeklyRemaining = 100 - (clamp(Number(row.usedPercent) || 0, 0, 100))
+  const shortRemaining = 100 - (clamp(Number(sibling.usedPercent) || 0, 0, 100))
+  const solidRemaining = Math.min(weeklyRemaining, shortRemaining * ratio)
+  const lockedPercent = Math.max(0, weeklyRemaining - solidRemaining)
+  return (lockedPercent / 100) * CELL_COUNT
+}
+
+// 单格配色（2026-09-12 Neal 定五色契约）：locked 由 WeeklyMeter 用
+// lockedRemainingCellCount 的唯一结果算出（格数算法只有那一套，此处不复制），
+// 传进来只为选 可用/受限 色档。2×2 语义不变：
+//   已流逝+已消耗=track；已流逝+未消耗=富余（天蓝/深蓝）；
+//   未流逝+已消耗=超额（橙，不分锁定）；未流逝+未消耗=剩余（翠绿/深绿）。
+function weeklyCell(now, subscription, index, locked = false) {
+  const usedPercent = clamp(Number(subscription.usedPercent) || 0, 0, 100)
+  const resetAt = Number(subscription.resetAt)
+  const cycleMs = quotaCycleMs(subscription)
+  const elapsedCells = Number.isFinite(resetAt)
+    ? clamp(((now - (resetAt - cycleMs)) / cycleMs) * CELL_COUNT, 0, CELL_COUNT)
+
+--- frontend peak rules + priority sort (lines 160-260) ---
+// （api-docs.deepseek.com 定价页注(1)；Neal 截图表中 DEEPSEEK「每天」为讹传）。
+// windows 为 [起,止) 分钟数(当日)；daily=true 表示周末也高峰（当前两家皆否）。
+const PEAK_RULES = {
+  GLM: { daily: false, windows: [[840, 1080]] },
+  DEEPSEEK: { daily: false, windows: [[540, 720], [840, 1080]] }
+}
+
+// 中国无夏令时：整体平移 8h 后按 UTC 读取即得北京时间。
+function activePeakRule(row, now) {
+  const key = String(row.providerId || row.label || '').toUpperCase()
+  const rule = PEAK_RULES[key]
+  if (!rule) return null
+  const bj = new Date(now + 8 * 60 * 60 * 1000)
+  if (!rule.daily) {
+    const weekday = bj.getUTCDay()
+    if (weekday < 1 || weekday > 5) return null
+  }
+  const minuteOfDay = bj.getUTCHours() * 60 + bj.getUTCMinutes()
+  const hit = rule.windows.some(([from, to]) => minuteOfDay >= from && minuteOfDay < to)
+  return hit ? rule : null
+}
+
+// 综合优先度 P（2026-09-09 Neal 定「蓝绿比」，09-12 补负富余）：P = (已流逝 − 已用) ÷ 未流逝。
+// 语义=蓝格÷绿格：按当前消耗节奏推算重置前的富余度，富余越多越先薅。
+// 用超进度（e≤u）记负分、不再截断成 0（2026-09-12 Neal 定）：负值=欠账深度，
+// 用满恒为 −1（(e−1)/(1−e)≡−1）钉最底。截断成 0 会让多行同塌 0 分，只剩
+// 「重置近在前」兜底 —— 用光的行反被抬到还有剩的行前面（09-12 GROK 用满排第 2、
+// 剩 96% 的 GLM 垫底的实况）。Y=0 或无/过期 resetAt → -Infinity 沉底。
+// 高峰削弱保留（2026-09-09 Neal 定，富余多者 ÷2 仍居首）：仅削 kind=quota 订阅行；
+// DEEPSEEK 无订阅全是 API（balance 行），不参与 quota 排序，天然不受影响。
+function rowPriority(row, now) {
+  const usedPercent = clamp(Number(row.usedPercent) || 0, 0, 100)
+  const resetAt = Number(row.resetAt)
+  if (!Number.isFinite(resetAt) || resetAt <= now) return -Infinity
+  const cycleMs = quotaCycleMs(row)
+  const elapsed = clamp((now - (resetAt - cycleMs)) / cycleMs, 0, 1)
+  const remainingFraction = 1 - elapsed
+  if (!(remainingFraction > 0)) return -Infinity
+  const surplus = elapsed - usedPercent / 100
+  const priority = surplus / remainingFraction
+  const subscriptionOnly = row.kind === 'quota'
+  return subscriptionOnly && activePeakRule(row, now) ? priority / 2 : priority
+}
+
+function orderRowsForDisplay(rows, now) {
+  // 单键优先度排序（2026-09-09 Neal 定「蓝绿比」）：P 见 rowPriority（盈余÷未流逝）。
+  // 高峰减半保留；同分（分数完全相等，如两行都用满 −1）按重置近在前兜底；余额/错误行恒在队尾。
+  // 无/非法 resetAt → Infinity 沉底；Number(null)=0 是有限数，必须先挡掉。
+  // 短窗附属化（2026-09-10 Neal 定）：5h 行不参与排序——5h 是撞墙预警显示器
+  // （起因=GLM 富余多跑长任务却在 5h 撞墙中断），不是独立供给池，周行排序
+  // 不再取 min(周P, 5hP)；渲染仍用 findFiveHourSibling 算锁定段。
+  const eta = row => {
+    const value = Number(row.resetAt)
+    return Number.isFinite(value) && value > 0 ? value : Infinity
+  }
+  const quotaRowsAll = collapseDuplicateQuotaRows(rows.filter(row => row.kind === 'quota'))
+  const quota = quotaRowsAll
+    .sort((a, b) => (rowPriority(b, now) - rowPriority(a, now)) || (eta(a) - eta(b)))
+  return [
+    ...quota,
+    ...rows.filter(row => row.kind !== 'quota')
+  ]
+}
+
+// 渲染路径用：给周行找同 providerId 的 5h 兄弟行。2026-09-10 起排序已短窗附属化
+// （orderRowsForDisplay 不再取 min），此函数仅服务锁定段显示——5h 是撞墙预警
+// 显示器，不是排序维度。windowSeconds 以秒记（resetAt 已是毫秒）。
+function findFiveHourSibling(row, pool) {
+  if (!(Number(row.windowSeconds) > 18000)) return null
+  return pool.find(candidate =>
+    candidate !== row &&
+    candidate.providerId === row.providerId &&
+    Number(candidate.windowSeconds) === 18000) || null
+}
+
+function collapseDuplicateQuotaRows(rows) {
+  const seen = new Set()
+  const unique = []
+  for (const row of rows) {
+    const key = [row.providerId, row.usedPercent, row.resetAt, row.windowSeconds].join('|')
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(row)
+  }
+  return unique
+}
+
+function quotaDisplayName(subscription) {
+  const suffix = compactWindowLabel(subscription.windowLabel)
+  return suffix ? `${subscription.label} ${suffix}` : subscription.label
+}
+
+function compactWindowLabel(windowLabel) {
+  const text = String(windowLabel || '').trim().toLowerCase()
+  if (!text || text === 'weekly' || text.includes('supergrok')) return ''
+  if (text.includes('session') || text.includes('5h')) return '5H'
+  if (text.includes('build')) return 'BUILD'
+  if (text === 'api weekly' || text.endsWith(' api weekly')) return 'API'
+  return ''
+}
+
+
+--- frontend WeeklyMeter (lines 437-460) ---
+function WeeklyMeter({ subscription, now, fiveHourSibling }) {
+  const matrixTitle = `84-cell matrix: ${quotaDisplayName(subscription)}, ${Math.round(100 - subscription.usedPercent)}% remaining, each cell = period / 84 (7-day window = 2 hours per cell)`
+  // 锁定段渲染：锁定格与普通格同一套实色渲染（goneColor 底 + fill 子元素）。
+  // 2026-09-12 Neal 定五色契约：锁定格颜色走 weeklyCell 的受限档（深绿/深蓝），
+  // 判定只在此算一次（格数唯一来源 lockedRemainingCellCount），以布尔传给
+  // weeklyCell 选色，不复制第二套格数算法。
+  const lockedCells = lockedRemainingCellCount(subscription, fiveHourSibling)
+  const quotaGoneBoundary = quotaCellCount(subscription.usedPercent)
+  const lockedStart = CELL_COUNT - lockedCells
+  const isLockedIndex = index => index >= quotaGoneBoundary && index >= lockedStart
+  const cells = useMemo(
+    () =>
+      Array.from({ length: CELL_COUNT }, (_, index) =>
+        weeklyCell(now, subscription, index, isLockedIndex(index))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [now, subscription, fiveHourSibling, quotaGoneBoundary, lockedStart]
+  )
+  const gridChildren = []
+  cells.forEach((cell, index) => {
+    const isLocked = isLockedIndex(index)
+    const fill = jsx('div', {
+      className: 'h-full',
+      style: {
+        width: `${cell.fillRatio * 100}%`,
+
+--- frontend row splitting (lines 1015-1030) ---
+    })
+  }
+
+  const displayRows = orderRowsForDisplay(rows, now)
+  // 全量 quota 行池：含 5h 短窗行，供排序取 min 与 WeeklyQuotaRow 锁定段计算。
+  const quotaPool = displayRows.filter(r => r.kind === 'quota')
+  // 5h 行不单独成行显示（2026-09-09 Neal 定）：只作周行的计算依据，不渲染。
+  const quotaRows = quotaPool.filter(r => Number(r.windowSeconds) !== 18000)
+  const balanceRows = displayRows.filter(r => r.kind !== 'quota')
+  const staleBanner = loadState === 'stale'
+    ? `Refresh failed · data as of ${new Date(lastSuccessAt || 0).toLocaleTimeString()} (showing the last successful data)`
+    : null
+
+  return jsxs('div', {
+    className: 'flex h-full min-w-0 flex-col gap-y-1 overflow-y-auto border-t border-(--ui-stroke-secondary) px-2 py-1',
+    style: { rowGap: 6, paddingTop: 8, paddingBottom: 8 },
+
+--- frontend connection labels (lines 613-618) ---
+const CONNECTION_LABELS = {
+  unknown: '尚未检查', disabled: '已隐藏 · 不取数', unconfigured: '未配置',
+  ok: '最近检查成功', partial: '部分数据可用', auth_error: '认证或权限失败', request_error: '请求失败',
+  unrecognized: 'API key 无法识别', no_fetcher: '暂无取数'
+}
+
+
+--- frontend colors/accents (lines 75-92) ---
+const COLORS = {
+  green: '#14AE68',       // 翠绿：剩余可用额度（未流逝+未消耗+未锁定）
+  greenLocked: '#006935', // 深绿：剩余受限额度（未流逝+未消耗+5h 锁定段）
+  blue: '#28A7E0',        // 天蓝：富余可用额度（已流逝+未消耗+未锁定）
+  blueLocked: '#0A499D',  // 深蓝：富余受限额度（已流逝+未消耗+锁定；现算法锁定段只落
+                          // 在周剩余区末尾，实物格可能为 0，图例仍保留此项）
+  orange: '#F39800',      // 橙：超额使用额度（未流逝+已消耗，不分锁定）
+  track: 'var(--ui-bg-quaternary)',
+  danger: 'var(--ui-danger, #f87171)'
+}
+
+const ACCENTS = {
+  KIMI: COLORS.green,
+  CODEX: COLORS.blue,
+  GLM: COLORS.orange,
+  GROK: '#1DA1F2',
+  NOUS: '#6366F1'
+}

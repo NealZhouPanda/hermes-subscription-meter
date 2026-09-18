@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Node
+node_modules/
+
+# Editor / temp
+*.swp
+*~
+.tmp/
+
+# Screenshots with real personal data must never be committed
+docs/images/*.png
+!docs/images/.gitkeep
