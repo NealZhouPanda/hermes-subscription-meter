@@ -6,7 +6,7 @@ Unlike a plain percentage list, each row is a dual-window grid: the horizontal a
 
 ## Screenshot
 
-Screenshot coming soon — a rendered panel capture will be added here in a future update (will live at `docs/images/matrix.png`).
+![Time × quota matrix: one provider per row](docs/images/matrix.png)
 
 ## Install
 
