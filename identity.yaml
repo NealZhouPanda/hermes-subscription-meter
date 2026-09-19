@@ -2,7 +2,7 @@
 #
 # Add or correct a key prefix / OAuth host / env slot / ledger key here and
 # open a PR. You do not need to change Python unless the provider also needs
-# a fetch adapter (those stay in backend/plugin_api.py).
+# a fetch adapter (those stay in dashboard/plugin_api.py).
 #
 # Detect order is implemented in code, not in this file:
 #   1. key prefix (longest match wins)

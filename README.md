@@ -22,7 +22,7 @@ Or from the CLI:
 hermes plugins install NealZhouPanda/hermes-subscription-meter
 ```
 
-The installer detects both components automatically: the agent-side backend (`plugin.yaml` + `__init__.py` + `backend/`) and the desktop-side panel (`plugin.js`). Restart the Hermes desktop app after installing.
+The installer detects both components automatically: the agent-side backend (`plugin.yaml` + `__init__.py` + `dashboard/`) and the desktop-side panel (`plugin.js`). Restart the Hermes desktop app after installing.
 
 ## Supported providers
 
@@ -44,7 +44,7 @@ Anything detected but lacking a fetcher is shown as `no_fetcher` rather than sil
 ## How it works
 
 - `plugin.js` — the desktop panel: the 84-cell matrix, balance bars, automatic ranking of the model it suggests you use first, and the per-provider visibility toggles (persisted per profile in plugin settings).
-- `backend/plugin_api.py` — a FastAPI router that turns credentials into provider-neutral quota rows. Secrets stay in memory only; they never appear in API responses, logs or error strings.
+- `dashboard/plugin_api.py` — a FastAPI router that turns credentials into provider-neutral quota rows. Secrets stay in memory only; they never appear in API responses, logs or error strings.
 - `tests/` — 84 frontend tests (node:test) + 110 backend tests (pytest).
 
 ## Development

@@ -1,6 +1,6 @@
 """Shared module loader for subscription-meter backend tests.
 
-Loads ``backend/plugin_api.py`` as a standalone module (no package import)
+Loads ``dashboard/plugin_api.py`` as a standalone module (no package import)
 so tests exercise the real file. Exposes the loaded ``plugin_api`` for
 ``from tests.conftest_sm import plugin_api``. Test isolation (temp
 HERMES_HOME, outbound-socket guard) lives in ``conftest.py``.
@@ -12,7 +12,7 @@ import os
 import sys
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).resolve().parents[1] / "backend" / "plugin_api.py"
+MODULE_PATH = Path(__file__).resolve().parents[1] / "dashboard" / "plugin_api.py"
 SPEC = importlib.util.spec_from_file_location("subscription_meter_plugin_api", MODULE_PATH)
 plugin_api = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
