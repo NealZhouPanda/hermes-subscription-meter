@@ -721,9 +721,9 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
 }
 
 const CONNECTION_LABELS = {
-  unknown: '尚未检查', disabled: '已隐藏 · 不取数', unconfigured: '未配置',
-  ok: '最近检查成功', partial: '部分数据可用', auth_error: '认证或权限失败', request_error: '请求失败',
-  unrecognized: 'API key 无法识别', no_fetcher: '暂无取数'
+  unknown: 'Not checked yet', disabled: 'Hidden · not fetched', unconfigured: 'Not configured',
+  ok: 'Last check succeeded', partial: 'Partial data available', auth_error: 'Auth or permission failed', request_error: 'Request failed',
+  unrecognized: 'API key not recognized', no_fetcher: 'No fetcher available'
 }
 
 function ProviderSettingsPanel({ rest }) {
@@ -790,7 +790,7 @@ function ProviderSettingsPanel({ rest }) {
       window.dispatchEvent(new Event('subscription-meter:settings-changed'))
     } catch {
       setState('error')
-      host.notify({ kind: 'error', message: '连接状态刷新失败，请稍后重试。' })
+      host.notify({ kind: 'error', message: 'Refreshing connection status failed — try again later.' })
     } finally {
       savePending.current = false
       setRefreshing(false)
@@ -807,25 +807,25 @@ function ProviderSettingsPanel({ rest }) {
             children: [
               jsx('h2', {
                 className: 'text-sm font-medium text-foreground',
-                children: '连接与显示'
+                children: 'Connection & display'
               }),
               jsx('p', {
                 className: 'mt-1 text-xs text-(--ui-text-tertiary)',
-                children: '开关控制显示和取数；连接状态来自最近一次检查，不表示凭证永久有效。此页不保存密钥。'
+                children: 'Switches control display and fetching; connection status reflects the last check and does not mean the credential stays valid. Keys are never stored on this page.'
               })
             ]
           }),
           jsx('button', {
-            type: 'button', 'aria-label': '刷新连接状态',
+            type: 'button', 'aria-label': 'Refresh connection status',
             disabled: state === 'loading' || savingId !== null || refreshing,
             className: 'rounded border border-(--ui-stroke-secondary) px-2 py-1 text-xs',
             onClick: () => void refreshStatus(),
-            children: refreshing ? '检查中…' : '刷新连接状态'
+            children: refreshing ? 'Checking…' : 'Refresh connection status'
           }),
           state === 'error'
             ? jsx('span', {
                 className: 'text-xs text-(--ui-danger)',
-                children: '操作失败，可点击刷新重试'
+                children: 'Action failed — click refresh to retry'
               })
             : null
         ]
@@ -845,7 +845,7 @@ function ProviderSettingsPanel({ rest }) {
                   }),
                   jsx('span', {
                     className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
-                    children: provider.kind === 'balance' ? '账户余额' : '订阅额度 · 84 格'
+                    children: provider.kind === 'balance' ? 'Account balance' : 'Subscription quota · 84 cells'
                   }),
                   jsx('span', {
                     className: 'block text-xs text-(--ui-text-secondary)',
@@ -854,13 +854,13 @@ function ProviderSettingsPanel({ rest }) {
                   }),
                   provider.checkedAt ? jsx('span', {
                     className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
-                    children: `检查时间：${new Date(provider.checkedAt * 1000).toLocaleString()}`
+                    children: `Last checked: ${new Date(provider.checkedAt * 1000).toLocaleString()}`
                   }) : null,
                   jsxs('details', {
                     className: 'mt-1 text-xs text-(--ui-text-secondary)',
                     children: [
-                      jsx('summary', { children: '接入与处理' }),
-                      jsx('p', { className: 'mt-1 whitespace-normal', children: provider.actionHint || '在当前 profile 配置账户后刷新；认证状态尚未检查。' })
+                      jsx('summary', { children: 'Setup & access' }),
+                      jsx('p', { className: 'mt-1 whitespace-normal', children: provider.actionHint || 'Configure an account for the current profile, then refresh; auth status has not been checked yet.' })
                     ]
                   })
                 ]

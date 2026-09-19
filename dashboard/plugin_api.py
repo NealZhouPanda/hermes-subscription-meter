@@ -397,8 +397,8 @@ _FALLBACK_ENV_SLOTS = (
     "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
 )
 
-_UNRECOGNIZED_HINT = "无法识别该 API key 对应的供应方；请检查当前 profile 的 .env 配置。"
-_NO_FETCHER_HINT = "已识别供应方，但暂无取数适配器；条目可开关，看板不占行。"
+_UNRECOGNIZED_HINT = "This API key does not match any known provider; check the .env of the current profile."
+_NO_FETCHER_HINT = "Provider recognized, but no fetcher adapter yet; the row can still be toggled and stays off the board."
 
 
 def _registry_env_vars() -> dict[str, tuple[str, str]]:
@@ -635,7 +635,7 @@ def set_provider_visibility(provider_id: str, enabled: bool) -> None:
 
 
 def _identity_status(identity: dict[str, Any], enabled: bool) -> dict[str, Any]:
-    hint = _ACTION_HINTS.get(identity["id"], "检查当前 profile 的账户配置并刷新。")
+    hint = _ACTION_HINTS.get(identity["id"], "Check the account setup for the current profile, then refresh.")
     if not enabled:
         return {"status": "disabled", "actionHint": hint}
     if identity["status"] == "no_fetcher":
@@ -770,20 +770,20 @@ def _sanitize_error(exc: BaseException | str) -> str:
 
 
 _ACTION_HINTS = {
-    "kimi": "在当前 profile 的 .env 配置 KIMI_API_KEY（Coding Plan），保存后刷新。",
-    "glm": "在当前 profile 的 .env 配置 GLM_API_KEY（Coding Plan），保存后刷新。",
-    "deepseek": "在当前 profile 的 .env 配置 DEEPSEEK_API_KEY；消费明细另需可选 DEEPSEEK_PLATFORM_TOKEN。",
-    "codex": "在当前 profile 运行 hermes auth，检查或重新登录 openai-codex；保存后刷新。",
-    "grok": "在当前 profile 运行 hermes auth，检查或重新登录 xai-oauth；不适用于推理 API 余额。",
-    "xai": "在当前 profile 的 .env 配置 XAI_MANAGEMENT_API_KEY 和 XAI_TEAM_ID；推理 API key 不适用。",
-    "nous": "在当前 profile 运行 hermes auth，检查 Nous Portal 登录及账户权限。",
-    "qwen": "在当前 profile 的 .env 配置 ALIBABA_CLOUD_ACCESS_KEY_ID 和 ALIBABA_CLOUD_ACCESS_KEY_SECRET，检查 BSS 查询权限。",
-    "minimax-cn": "在当前 profile 的 .env 配置 MINIMAX_CN_API_KEY（Token Plan 订阅 Key）；按量计费 Key 不适用。",
-    "minimax": "在当前 profile 的 .env 配置 MINIMAX_API_KEY（Token Plan 订阅 Key）；按量计费 Key 不适用。",
-    "anthropic": "已识别 Anthropic 凭据；暂无取数适配器。",
-    "openrouter": "已识别 OpenRouter 凭据；暂无取数适配器。",
-    "xai-inference": "xAI 推理 key 不等于 Management 余额；暂无取数适配器。",
-    "qwen-dashscope": "DashScope 推理 key 不等于阿里云 AccessKey 余额；暂无取数适配器。",
+    "kimi": "Set KIMI_API_KEY (Coding Plan) in the current profile's .env, then refresh.",
+    "glm": "Set GLM_API_KEY (Coding Plan) in the current profile's .env, then refresh.",
+    "deepseek": "Set DEEPSEEK_API_KEY in the current profile's .env; spend detail also needs the optional DEEPSEEK_PLATFORM_TOKEN.",
+    "codex": "Run hermes auth in the current profile to check or re-login openai-codex, then refresh.",
+    "grok": "Run hermes auth in the current profile to check or re-login xai-oauth; does not apply to inference API balance.",
+    "xai": "Set XAI_MANAGEMENT_API_KEY and XAI_TEAM_ID in the current profile's .env; an inference API key does not apply.",
+    "nous": "Run hermes auth in the current profile to check the Nous Portal login and account permissions.",
+    "qwen": "Set ALIBABA_CLOUD_ACCESS_KEY_ID and ALIBABA_CLOUD_ACCESS_KEY_SECRET in the current profile's .env, and check BSS query permissions.",
+    "minimax-cn": "Set MINIMAX_CN_API_KEY (Token Plan subscription key) in the current profile's .env; pay-as-you-go keys do not apply.",
+    "minimax": "Set MINIMAX_API_KEY (Token Plan subscription key) in the current profile's .env; pay-as-you-go keys do not apply.",
+    "anthropic": "Anthropic credential recognized; no fetcher adapter yet.",
+    "openrouter": "OpenRouter credential recognized; no fetcher adapter yet.",
+    "xai-inference": "An xAI inference key is not the Management balance; no fetcher adapter yet.",
+    "qwen-dashscope": "A DashScope inference key is not an Alibaba Cloud AccessKey balance; no fetcher adapter yet.",
 }
 
 
@@ -795,7 +795,7 @@ def _row(row_id: str, label: str, error: Exception | None = None, **fields: Any)
     )
     row.status = "ok"
     row.checkedAt = time.time()
-    row.actionHint = _ACTION_HINTS.get(row.providerId, "检查当前 profile 的账户配置并刷新。")
+    row.actionHint = _ACTION_HINTS.get(row.providerId, "Check the account setup for the current profile, then refresh.")
     if error is not None:
         row.error = _sanitize_error(error)
         row.status = "request_error"
@@ -1441,7 +1441,7 @@ def _fetch_xai(now: float, secret: str = "") -> MeterRow:
             currency="USD",
             status="partial" if partial else "ok",
             actionHint=(
-                "余额可用；消费明细未获取，请检查 XAI_MANAGEMENT_API_KEY 权限或稍后刷新。"
+                "Balance available; spend detail was not fetched — check XAI_MANAGEMENT_API_KEY permissions or refresh later."
                 if partial
                 else _ACTION_HINTS["xai"]
             ),
@@ -1727,7 +1727,7 @@ def _fetch_deepseek(now: float, secret: str = "") -> MeterRow:
         return _row(
             "deepseek", "DEEPSEEK", kind="balance", balance=balance, currency=currency,
             status="partial" if partial else "ok",
-            actionHint=("余额可用；消费明细未获取，请配置或更新当前 profile 的 DEEPSEEK_PLATFORM_TOKEN。" if partial else _ACTION_HINTS["deepseek"]),
+            actionHint=("Balance available; spend detail was not fetched — set or update DEEPSEEK_PLATFORM_TOKEN for the current profile." if partial else _ACTION_HINTS["deepseek"]),
             todaySpend=today,
             sevenDaySpend=seven,
             thirtyDaySpend=thirty,

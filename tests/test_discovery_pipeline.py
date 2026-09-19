@@ -68,13 +68,13 @@ def test_known_hermes_slot_without_fetcher_is_no_fetcher():
 
 
 def test_unrecognized_and_no_fetcher_labels_present_in_desktop_frontend():
-    """前端 CONNECTION_LABELS 必须含 unrecognized / no_fetcher 的中文文案。"""
+    """Frontend CONNECTION_LABELS must carry the unrecognized / no_fetcher copy."""
     from pathlib import Path
 
     js = Path(plugin_api.__file__).resolve().parents[1] / "plugin.js"
     text = js.read_text(encoding="utf-8")
-    assert "unrecognized" in text and "API key 无法识别" in text
-    assert "no_fetcher" in text and "暂无取数" in text
+    assert "unrecognized" in text and "API key not recognized" in text
+    assert "no_fetcher" in text and "No fetcher available" in text
 
 
 def test_rule_hit_auth_failure_falls_back_to_slot_guess(monkeypatch):
