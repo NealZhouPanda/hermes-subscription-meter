@@ -1,0 +1,235 @@
+# Provider identity matchers for hermes-subscription-meter.
+#
+# Add or correct a key prefix / OAuth host / env slot / ledger key here and
+# open a PR. You do not need to change Python unless the provider also needs
+# a fetch adapter (those stay in backend/plugin_api.py).
+#
+# Detect order is implemented in code, not in this file:
+#   1. key prefix (longest match wins)
+#   2. OAuth host id
+#   3. env-slot weak prior
+#   4. ledger env name
+#
+# An id with no fetch adapter still loads; the meter shows it as no_fetcher.
+# Unknown keys, missing fields, or a missing file fail at import — there is
+# no in-code fallback table.
+
+providers:
+  - id: anthropic
+    shareable: false
+    matchers:
+      prefixes:
+        - prefix: sk-ant-oat
+          kind: quota
+          label: ANTHROPIC
+        - prefix: sk-ant-
+          kind: quota
+          label: ANTHROPIC
+      oauth: []
+      env_slots: []
+      ledger_env: []
+      label_kind:
+        label: ANTHROPIC
+        kind: quota
+    meta: {}
+
+  - id: openrouter
+    shareable: false
+    matchers:
+      prefixes:
+        - prefix: sk-or-
+          kind: balance
+          label: OPENROUTER
+      oauth: []
+      env_slots: []
+      ledger_env: []
+      label_kind:
+        label: OPENROUTER
+        kind: balance
+    meta: {}
+
+  - id: kimi
+    shareable: false
+    matchers:
+      prefixes:
+        - prefix: sk-kimi-
+          kind: quota
+          label: KIMI
+      oauth: []
+      env_slots:
+        - KIMI_API_KEY
+        - KIMI_CODING_API_KEY
+        - KIMI_CN_API_KEY
+      ledger_env: []
+      label_kind:
+        label: KIMI
+        kind: quota
+    meta:
+      accent: "#14AE68"
+
+  - id: qwen-dashscope
+    shareable: false
+    matchers:
+      prefixes:
+        - prefix: sk-ws-
+          kind: quota
+          label: QWEN DASHSCOPE
+      oauth: []
+      env_slots: []
+      ledger_env: []
+      label_kind:
+        label: QWEN DASHSCOPE
+        kind: quota
+    meta: {}
+
+  - id: xai-inference
+    shareable: false
+    matchers:
+      prefixes:
+        - prefix: xai-
+          kind: quota
+          label: XAI API
+      oauth: []
+      env_slots: []
+      ledger_env: []
+      label_kind:
+        label: XAI API
+        kind: quota
+    meta: {}
+
+  - id: xai
+    shareable: false
+    matchers:
+      prefixes: []
+      oauth: []
+      env_slots: []
+      ledger_env:
+        - XAI_MANAGEMENT_API_KEY
+      label_kind:
+        label: XAI
+        kind: balance
+    meta: {}
+
+  - id: qwen
+    shareable: false
+    matchers:
+      prefixes:
+        - prefix: LTAI
+          kind: balance
+          label: QWEN
+      oauth: []
+      env_slots: []
+      ledger_env:
+        - ALIBABA_CLOUD_ACCESS_KEY_ID
+      label_kind:
+        label: QWEN
+        kind: balance
+    meta: {}
+
+  - id: glm
+    shareable: false
+    matchers:
+      prefixes: []
+      oauth: []
+      env_slots:
+        - GLM_API_KEY
+        - ZAI_API_KEY
+        - Z_AI_API_KEY
+      ledger_env: []
+      label_kind:
+        label: GLM
+        kind: quota
+    meta:
+      accent: "#F39800"
+      peakHours:
+        timezone: "+08:00"
+        daily: false
+        windows:
+          - [840, 1080]
+
+  - id: deepseek
+    shareable: false
+    matchers:
+      prefixes: []
+      oauth: []
+      env_slots:
+        - DEEPSEEK_API_KEY
+      ledger_env: []
+      label_kind:
+        label: DEEPSEEK
+        kind: balance
+    meta:
+      peakHours:
+        timezone: "+08:00"
+        daily: false
+        windows:
+          - [540, 720]
+          - [840, 1080]
+
+  - id: minimax-cn
+    shareable: false
+    matchers:
+      prefixes: []
+      oauth: []
+      env_slots:
+        - MINIMAX_CN_API_KEY
+      ledger_env: []
+      label_kind:
+        label: MINIMAX
+        kind: quota
+    meta: {}
+
+  - id: minimax
+    shareable: false
+    matchers:
+      prefixes: []
+      oauth: []
+      env_slots:
+        - MINIMAX_API_KEY
+      ledger_env: []
+      label_kind:
+        label: MINIMAX
+        kind: quota
+    meta: {}
+
+  - id: codex
+    shareable: true
+    matchers:
+      prefixes: []
+      oauth:
+        - openai-codex
+      env_slots: []
+      ledger_env: []
+      label_kind:
+        label: CODEX
+        kind: quota
+    meta:
+      accent: "#28A7E0"
+
+  - id: grok
+    shareable: true
+    matchers:
+      prefixes: []
+      oauth:
+        - xai-oauth
+      env_slots: []
+      ledger_env: []
+      label_kind:
+        label: GROK
+        kind: quota
+    meta:
+      accent: "#1DA1F2"
+
+  - id: nous
+    shareable: false
+    matchers:
+      prefixes: []
+      oauth:
+        - nous
+      env_slots: []
+      ledger_env: []
+      label_kind:
+        label: NOUS
+        kind: balance
+    meta:
+      accent: "#6366F1"

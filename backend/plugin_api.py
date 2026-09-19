@@ -142,15 +142,15 @@ class ProviderVisibilityUpdate(BaseModel):
 
 # --- A/B/C. 发现 + 识别（FetcherSpec，非显示名单） ----------------------------------
 #
-# 原七张登记表（key 前缀 / OAuth host / 账本键 / env 槽位先验 / 取数注册 /
-# label-kind / 供应商 meta）已于 2026-09-16 M3 收编为 FetcherSpec（id / fetch(可空) /
-# shareable / matchers / meta，方案见 release-prep/refactor-20260915/design/round2-grok-final.md §2）。
-# 取数函数体一律原地保留，这里只登记引用；fetch 存模块内函数名，调用时经 globals()
-# 解析，保留 monkeypatch 接缝。
+# 识别与展示登记在仓库根 identity.yaml；本模块只负责加载、校验，以及把
+# FETCH_BY_ID 绑到 fetch 函数名。取数函数体一律原地保留；fetch 存模块内函数名，
+# 调用时经 globals() 解析，保留 monkeypatch 接缝。yaml 里没有对应 fetch 的 id
+# 保持 fetch=None（no_fetcher）。加载失败（缺文件 / 字段缺失 / 未知键）在
+# import 时硬失败，禁止静默退回内嵌表。
 #
-# 声明序即 detect 全局排队序。选序理由（non-obvious）：ledger / env_slot 的派生序必须
-# 与旧表逐项同序——候选加入顺序是「先发现者优先」去重和设置页/看板行序的输入；
-# 前缀规则按长度竞争，旧表书写序不参与胜负，但派生序仍与旧表保持同序以便核对。
+# detect 四类有序仍由代码实现，不写进 yaml：① 前缀按长度竞争 ② OAuth host
+# ③ env 槽位弱先验 ④ ledger。yaml providers 列表序即 ledger/env_slot 派生序
+# （候选加入顺序是「先发现者优先」去重和设置页/看板行序的输入）。
 @dataclass(frozen=True)
 class FetcherSpec:
     """单家供应方的身份 + 取数登记（M3 收编，替代七张散表）。
@@ -168,70 +168,184 @@ class FetcherSpec:
     meta: dict[str, Any]
 
 
-FETCHER_SPECS = (
-    FetcherSpec("anthropic", None, False,
-                {"prefixes": (("sk-ant-oat", "quota", "ANTHROPIC"),
-                              ("sk-ant-", "quota", "ANTHROPIC")),
-                 "oauth": (), "env_slots": (), "ledger_env": (),
-                 "label_kind": ("ANTHROPIC", "quota")}, {}),
-    FetcherSpec("openrouter", None, False,
-                {"prefixes": (("sk-or-", "balance", "OPENROUTER"),),
-                 "oauth": (), "env_slots": (), "ledger_env": (),
-                 "label_kind": ("OPENROUTER", "balance")}, {}),
-    FetcherSpec("kimi", "_fetch_kimi", False,
-                {"prefixes": (("sk-kimi-", "quota", "KIMI"),),
-                 "oauth": (),
-                 "env_slots": ("KIMI_API_KEY", "KIMI_CODING_API_KEY", "KIMI_CN_API_KEY"),
-                 "ledger_env": (), "label_kind": ("KIMI", "quota")},
-                {"accent": "#14AE68"}),
-    FetcherSpec("qwen-dashscope", None, False,
-                {"prefixes": (("sk-ws-", "quota", "QWEN DASHSCOPE"),),
-                 "oauth": (), "env_slots": (), "ledger_env": (),
-                 "label_kind": ("QWEN DASHSCOPE", "quota")}, {}),
-    FetcherSpec("xai-inference", None, False,
-                {"prefixes": (("xai-", "quota", "XAI API"),),
-                 "oauth": (), "env_slots": (), "ledger_env": (),
-                 "label_kind": ("XAI API", "quota")}, {}),
-    FetcherSpec("xai", "_fetch_xai", False,
-                {"prefixes": (), "oauth": (), "env_slots": (),
-                 "ledger_env": ("XAI_MANAGEMENT_API_KEY",),
-                 "label_kind": ("XAI", "balance")}, {}),
-    FetcherSpec("qwen", "_fetch_qwen", False,
-                {"prefixes": (("LTAI", "balance", "QWEN"),),
-                 "oauth": (), "env_slots": (),
-                 "ledger_env": ("ALIBABA_CLOUD_ACCESS_KEY_ID",),
-                 "label_kind": ("QWEN", "balance")}, {}),
-    FetcherSpec("glm", "_fetch_glm", False,
-                {"prefixes": (), "oauth": (),
-                 "env_slots": ("GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"),
-                 "ledger_env": (), "label_kind": ("GLM", "quota")},
-                {"accent": "#F39800",
-                 "peakHours": {"timezone": "+08:00", "daily": False,
-                               "windows": [[840, 1080]]}}),
-    FetcherSpec("deepseek", "_fetch_deepseek", False,
-                {"prefixes": (), "oauth": (), "env_slots": ("DEEPSEEK_API_KEY",),
-                 "ledger_env": (), "label_kind": ("DEEPSEEK", "balance")},
-                {"peakHours": {"timezone": "+08:00", "daily": False,
-                               "windows": [[540, 720], [840, 1080]]}}),
-    FetcherSpec("minimax-cn", "_fetch_minimax_cn", False,
-                {"prefixes": (), "oauth": (), "env_slots": ("MINIMAX_CN_API_KEY",),
-                 "ledger_env": (), "label_kind": ("MINIMAX", "quota")}, {}),
-    FetcherSpec("minimax", "_fetch_minimax_global", False,
-                {"prefixes": (), "oauth": (), "env_slots": ("MINIMAX_API_KEY",),
-                 "ledger_env": (), "label_kind": ("MINIMAX", "quota")}, {}),
-    FetcherSpec("codex", "_fetch_codex", True,
-                {"prefixes": (), "oauth": ("openai-codex",), "env_slots": (),
-                 "ledger_env": (), "label_kind": ("CODEX", "quota")},
-                {"accent": "#28A7E0"}),
-    FetcherSpec("grok", "_fetch_grok", True,
-                {"prefixes": (), "oauth": ("xai-oauth",), "env_slots": (),
-                 "ledger_env": (), "label_kind": ("GROK", "quota")},
-                {"accent": "#1DA1F2"}),
-    FetcherSpec("nous", "_fetch_nous", False,
-                {"prefixes": (), "oauth": ("nous",), "env_slots": (),
-                 "ledger_env": (), "label_kind": ("NOUS", "balance")},
-                {"accent": "#6366F1"}),
-)
+class IdentityTableError(RuntimeError):
+    """identity.yaml missing, invalid, or unknown keys. Import must not continue."""
+
+
+_IDENTITY_YAML = Path(__file__).resolve().parent.parent / "identity.yaml"
+_PROVIDER_KEYS = frozenset({"id", "shareable", "matchers", "meta"})
+_MATCHER_KEYS = frozenset({"prefixes", "oauth", "env_slots", "ledger_env", "label_kind"})
+_PREFIX_KEYS = frozenset({"prefix", "kind", "label"})
+_LABEL_KIND_KEYS = frozenset({"label", "kind"})
+_META_KEYS = frozenset({"accent", "peakHours"})
+_PEAK_KEYS = frozenset({"timezone", "daily", "windows"})
+
+
+def _reject_unknown(mapping: dict, allowed: frozenset[str], where: str) -> None:
+    extra = sorted(set(mapping) - allowed)
+    if extra:
+        raise IdentityTableError(f"{where}: unknown key(s) {extra}")
+
+
+def _require(mapping: dict, required: frozenset[str], where: str) -> None:
+    missing = sorted(required - set(mapping))
+    if missing:
+        raise IdentityTableError(f"{where}: missing key(s) {missing}")
+
+
+def _as_str_tuple(value: Any, where: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise IdentityTableError(f"{where}: expected a list")
+    out: list[str] = []
+    for i, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            raise IdentityTableError(f"{where}[{i}]: expected a non-empty string")
+        out.append(item)
+    return tuple(out)
+
+
+def _load_prefixes(value: Any, where: str) -> tuple[tuple[str, str, str], ...]:
+    if not isinstance(value, list):
+        raise IdentityTableError(f"{where}: expected a list")
+    out: list[tuple[str, str, str]] = []
+    for i, item in enumerate(value):
+        loc = f"{where}[{i}]"
+        if not isinstance(item, dict):
+            raise IdentityTableError(f"{loc}: expected a mapping with prefix/kind/label")
+        _reject_unknown(item, _PREFIX_KEYS, loc)
+        _require(item, _PREFIX_KEYS, loc)
+        prefix, kind, label = item["prefix"], item["kind"], item["label"]
+        if not all(isinstance(x, str) and x for x in (prefix, kind, label)):
+            raise IdentityTableError(f"{loc}: prefix/kind/label must be non-empty strings")
+        out.append((prefix, kind, label))
+    return tuple(out)
+
+
+def _load_label_kind(value: Any, where: str) -> tuple[str, str]:
+    if not isinstance(value, dict):
+        raise IdentityTableError(f"{where}: expected a mapping with label/kind")
+    _reject_unknown(value, _LABEL_KIND_KEYS, where)
+    _require(value, _LABEL_KIND_KEYS, where)
+    label, kind = value["label"], value["kind"]
+    if not isinstance(label, str) or not label or not isinstance(kind, str) or not kind:
+        raise IdentityTableError(f"{where}: label/kind must be non-empty strings")
+    return (label, kind)
+
+
+def _load_peak_hours(value: Any, where: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise IdentityTableError(f"{where}: expected a mapping")
+    _reject_unknown(value, _PEAK_KEYS, where)
+    _require(value, _PEAK_KEYS, where)
+    timezone, daily, windows = value["timezone"], value["daily"], value["windows"]
+    if not isinstance(timezone, str) or not timezone:
+        raise IdentityTableError(f"{where}.timezone: expected a non-empty string")
+    if not isinstance(daily, bool):
+        raise IdentityTableError(f"{where}.daily: expected a bool")
+    if not isinstance(windows, list) or not windows:
+        raise IdentityTableError(f"{where}.windows: expected a non-empty list")
+    parsed: list[list[int]] = []
+    for i, pair in enumerate(windows):
+        if not (
+            isinstance(pair, list)
+            and len(pair) == 2
+            and all(isinstance(n, int) and not isinstance(n, bool) for n in pair)
+        ):
+            raise IdentityTableError(f"{where}.windows[{i}]: expected [int, int]")
+        parsed.append([int(pair[0]), int(pair[1])])
+    return {"timezone": timezone, "daily": daily, "windows": parsed}
+
+
+def _load_meta(value: Any, where: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise IdentityTableError(f"{where}: expected a mapping")
+    _reject_unknown(value, _META_KEYS, where)
+    meta: dict[str, Any] = {}
+    if "accent" in value:
+        accent = value["accent"]
+        if not isinstance(accent, str) or not accent:
+            raise IdentityTableError(f"{where}.accent: expected a non-empty string")
+        meta["accent"] = accent
+    if "peakHours" in value:
+        meta["peakHours"] = _load_peak_hours(value["peakHours"], f"{where}.peakHours")
+    return meta
+
+
+def _load_fetcher_specs(path: Path, fetch_by_id: dict[str, str]) -> tuple[FetcherSpec, ...]:
+    """Load identity.yaml into FetcherSpec tuples. Hard-fail; never fall back."""
+    try:
+        import yaml
+    except ImportError as exc:
+        raise IdentityTableError(
+            "PyYAML is required to load identity.yaml (no in-code fallback table)"
+        ) from exc
+    if not path.is_file():
+        raise IdentityTableError(f"identity table missing: {path}")
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise IdentityTableError(f"identity.yaml is not valid YAML: {path}") from exc
+    if not isinstance(doc, dict):
+        raise IdentityTableError(f"{path}: expected a top-level mapping")
+    _reject_unknown(doc, frozenset({"providers"}), str(path))
+    _require(doc, frozenset({"providers"}), str(path))
+    providers = doc["providers"]
+    if not isinstance(providers, list) or not providers:
+        raise IdentityTableError(f"{path}: providers must be a non-empty list")
+    specs: list[FetcherSpec] = []
+    seen: set[str] = set()
+    for i, item in enumerate(providers):
+        loc = f"providers[{i}]"
+        if not isinstance(item, dict):
+            raise IdentityTableError(f"{loc}: expected a mapping")
+        _reject_unknown(item, _PROVIDER_KEYS, loc)
+        _require(item, _PROVIDER_KEYS, loc)
+        pid = item["id"]
+        if not isinstance(pid, str) or not pid:
+            raise IdentityTableError(f"{loc}.id: expected a non-empty string")
+        if pid in seen:
+            raise IdentityTableError(f"{loc}.id: duplicate id {pid!r}")
+        seen.add(pid)
+        shareable = item["shareable"]
+        if not isinstance(shareable, bool):
+            raise IdentityTableError(f"{loc}.shareable: expected a bool")
+        matchers_raw = item["matchers"]
+        if not isinstance(matchers_raw, dict):
+            raise IdentityTableError(f"{loc}.matchers: expected a mapping")
+        _reject_unknown(matchers_raw, _MATCHER_KEYS, f"{loc}.matchers")
+        _require(matchers_raw, _MATCHER_KEYS, f"{loc}.matchers")
+        matchers = {
+            "prefixes": _load_prefixes(matchers_raw["prefixes"], f"{loc}.matchers.prefixes"),
+            "oauth": _as_str_tuple(matchers_raw["oauth"], f"{loc}.matchers.oauth"),
+            "env_slots": _as_str_tuple(matchers_raw["env_slots"], f"{loc}.matchers.env_slots"),
+            "ledger_env": _as_str_tuple(matchers_raw["ledger_env"], f"{loc}.matchers.ledger_env"),
+            "label_kind": _load_label_kind(matchers_raw["label_kind"], f"{loc}.matchers.label_kind"),
+        }
+        specs.append(FetcherSpec(
+            pid,
+            fetch_by_id.get(pid),
+            shareable,
+            matchers,
+            _load_meta(item["meta"], f"{loc}.meta"),
+        ))
+    return tuple(specs)
+
+
+# yaml 里没有的 id → fetch=None / no_fetcher。函数体仍在本模块，这里只登记名字。
+FETCH_BY_ID = {
+    "kimi": "_fetch_kimi",
+    "xai": "_fetch_xai",
+    "qwen": "_fetch_qwen",
+    "glm": "_fetch_glm",
+    "deepseek": "_fetch_deepseek",
+    "minimax-cn": "_fetch_minimax_cn",
+    "minimax": "_fetch_minimax_global",
+    "codex": "_fetch_codex",
+    "grok": "_fetch_grok",
+    "nous": "_fetch_nous",
+}
+
+FETCHER_SPECS = _load_fetcher_specs(_IDENTITY_YAML, FETCH_BY_ID)
 
 _SPEC_BY_ID = {spec.id: spec for spec in FETCHER_SPECS}
 
