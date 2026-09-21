@@ -233,3 +233,20 @@ providers:
         kind: balance
     meta:
       accent: "#6366F1"
+
+  - id: commandcode
+    shareable: false
+    matchers:
+      prefixes:
+        - prefix: user_
+          kind: quota
+          label: COMMANDCODE
+      oauth: []
+      env_slots:
+        - COMMANDCODE_API_KEY
+      ledger_env: []
+      label_kind:
+        label: COMMANDCODE
+        kind: quota
+    meta:
+      accent: "#2DD4BF"

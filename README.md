@@ -33,6 +33,7 @@ The discovery layer collects candidate credentials from the Hermes provider regi
 | Codex (ChatGPT) | Hermes `account_usage`, fallback to chatgpt.com usage endpoint |
 | GLM (Zhipu) | open.bigmodel.cn quota endpoint |
 | Kimi (Moonshot) | api.kimi.com coding usage endpoint |
+| Command Code | api.commandcode.ai `/alpha/billing/credits` (API key; 5h + weekly windows and monthly credit balance) |
 | DeepSeek | api.deepseek.com balance + platform cost |
 | xAI (Grok subscription) | Hermes `account_usage` (xai-oauth), fallback to CLI proxy billing |
 | MiniMax | CN plan usage endpoint |
@@ -45,7 +46,7 @@ Anything detected but lacking a fetcher is shown as `no_fetcher` rather than sil
 
 - `plugin.js` — the desktop panel: the 84-cell matrix, balance bars, automatic ranking of the model it suggests you use first, and the per-provider visibility toggles (persisted per profile in plugin settings).
 - `dashboard/plugin_api.py` — a FastAPI router that turns credentials into provider-neutral quota rows. Secrets stay in memory only; they never appear in API responses, logs or error strings.
-- `tests/` — 84 frontend tests (node:test) + 110 backend tests (pytest).
+- `tests/` — 84 frontend tests (node:test) + 116 backend tests (pytest).
 
 ## Development
 

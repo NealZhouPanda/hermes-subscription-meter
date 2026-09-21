@@ -21,7 +21,7 @@ def isolate_env(tmp_path, monkeypatch):
     monkeypatch.setenv("SUBSCRIPTION_METER_TEST_ISOLATED", "1")
     # Strip credential-ish variables for the duration of each test.
     for name in list(os.environ):
-        if name.startswith(("KIMI_", "GLM_", "DEEPSEEK_", "XAI_", "NOUS_", "ALIBABA_CLOUD_", "DASHSCOPE_")):
+        if name.startswith(("KIMI_", "GLM_", "DEEPSEEK_", "XAI_", "NOUS_", "ALIBABA_CLOUD_", "DASHSCOPE_", "COMMANDCODE_")):
             monkeypatch.delenv(name, raising=False)
     yield
     # monkeypatch restores the environment itself; nothing to undo manually.
