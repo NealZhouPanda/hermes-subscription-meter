@@ -52,6 +52,10 @@ CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 GROK_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
 DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
 DEEPSEEK_COST_URL = "https://platform.deepseek.com/api/v0/usage/by_api_key/cost"
+# Command Code 配额：/alpha/* 用 API key 鉴权（Authorization: Bearer），旧的
+# /internal/* 只认浏览器 session cookie（2026-09-21 实测 API key → 401），
+# 供应商自己的 CLI 1.58.1 也走 /alpha/*，所以以 API key 路径为准。
+COMMANDCODE_BILLING_URL = "https://api.commandcode.ai/alpha/billing/credits"
 # MiniMax Token Plan（订阅套餐）用量：只有套餐 Key 能查的开放平台端点，CN/全球
 # base 共用同一路径（2026-09-12 实测：CN 真 key → status_code=0 带 model_remains；
 # 全球 base 无效 key → 1004 cookie is missing，即路径有效、只是鉴权失败）。
@@ -343,6 +347,7 @@ FETCH_BY_ID = {
     "codex": "_fetch_codex",
     "grok": "_fetch_grok",
     "nous": "_fetch_nous",
+    "commandcode": "_fetch_commandcode",
 }
 
 FETCHER_SPECS = _load_fetcher_specs(_IDENTITY_YAML, FETCH_BY_ID)
@@ -772,6 +777,7 @@ def _sanitize_error(exc: BaseException | str) -> str:
 _ACTION_HINTS = {
     "kimi": "Set KIMI_API_KEY (Coding Plan) in the current profile's .env, then refresh.",
     "glm": "Set GLM_API_KEY (Coding Plan) in the current profile's .env, then refresh.",
+    "commandcode": "Set COMMANDCODE_API_KEY in the current profile's .env (Command Code Studio → API keys), then refresh.",
     "deepseek": "Set DEEPSEEK_API_KEY in the current profile's .env; spend detail also needs the optional DEEPSEEK_PLATFORM_TOKEN.",
     "codex": "Run hermes auth in the current profile to check or re-login openai-codex, then refresh.",
     "grok": "Run hermes auth in the current profile to check or re-login xai-oauth; does not apply to inference API balance.",
@@ -973,6 +979,79 @@ def _fetch_glm(now: float, secret: str = "") -> list[MeterRow]:
         return rows
     except Exception as exc:
         return [_row("glm", "GLM", error=exc, providerId="glm")]
+
+
+def _fetch_commandcode(now: float, secret: str = "") -> list[MeterRow]:
+    """Command Code：周窗 + 5h 窗 + 月度积分余额（2026-09-21 实测结构）。
+
+    ``windowLimits.{weekly,fiveHour}`` = {used, cap, exceeded, resetAt}，resetAt 为
+    毫秒 epoch；两个 cap 由套餐决定（Go 6/3、GOAT 35/14、Pro 40/16、Max 90/45…），
+    因此 burst 份额按 cap 推导，不写死常量。``credits.monthlyCredits`` 是套餐月度
+    额度余额，单独吐一行 balance——两个窗口之外，它才是真正会见底的口径。
+    """
+    try:
+        data = _json_get(
+            COMMANDCODE_BILLING_URL, secret or _read_env_key("COMMANDCODE_API_KEY")
+        )
+        if not isinstance(data, dict):
+            raise ValueError("unexpected payload shape")
+        windows = data.get("windowLimits") or {}
+        weekly = windows.get("weekly") or {}
+        five_hour = windows.get("fiveHour") or {}
+        weekly_cap = _coerce_float(weekly.get("cap"))
+        weekly_used = _coerce_float(weekly.get("used"))
+        if not weekly_cap or weekly_used is None:
+            raise ValueError("no weekly window in payload")
+        five_hour_cap = _coerce_float(five_hour.get("cap"))
+        rows = [
+            _row(
+                "commandcode",
+                "COMMANDCODE",
+                providerId="commandcode",
+                kind="quota",
+                windowLabel="Weekly",
+                windowSeconds=WEEKLY_SECONDS,
+                role="cycle",
+                burstShare=(five_hour_cap / weekly_cap) if five_hour_cap else None,
+                usedPercent=weekly_used / weekly_cap * 100,
+                resetAt=_to_epoch(weekly.get("resetAt")),
+            )
+        ]
+        # 5h 窗：cap 或 used 缺失就不吐该行，不伪造数值。
+        five_hour_used = _coerce_float(five_hour.get("used"))
+        if five_hour_cap and five_hour_used is not None:
+            rows.append(
+                _row(
+                    "commandcode:5h",
+                    "COMMANDCODE",
+                    providerId="commandcode",
+                    kind="quota",
+                    windowLabel="5H",
+                    windowSeconds=FIVE_HOUR_SECONDS,
+                    role="burst",
+                    usedPercent=five_hour_used / five_hour_cap * 100,
+                    # 5h 窗重置后 API 的 resetAt 可能停在过去（GLM 同款）：前滚到
+                    # 未来，否则前端按 -inf 排序会连累周窗行。
+                    resetAt=_roll_forward(
+                        _to_epoch(five_hour.get("resetAt")), FIVE_HOUR_SECONDS, now
+                    ),
+                )
+            )
+        monthly = _coerce_float((data.get("credits") or {}).get("monthlyCredits"))
+        if monthly is not None:
+            rows.append(
+                _row(
+                    "commandcode:monthly",
+                    "COMMANDCODE",
+                    providerId="commandcode",
+                    kind="balance",
+                    balance=monthly,
+                    currency="USD",
+                )
+            )
+        return rows
+    except Exception as exc:
+        return [_row("commandcode", "COMMANDCODE", error=exc, providerId="commandcode")]
 
 
 def _minimax_plan_rows(
