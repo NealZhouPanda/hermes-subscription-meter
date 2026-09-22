@@ -1,0 +1,967 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-09-22",
+  "status": "draft",
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "region": "Global",
+      "products": [
+        {
+          "name": "OpenAI API（按量）",
+          "auth_kind": "api_key",
+          "key_format": {
+            "prefix": "sk-proj- / sk-svcacct- / sk-admin- / sk-（官方凭据类型文档提及，具体字符串前缀样式为示例，完整规范未核实）",
+            "length": "本次未查到官方长度规范（unverified）",
+            "structure": "sk-<scope>- + base64url 随机体，常含 T3BlbkFJ（'OpenAI' 的 base64）标记；无校验位",
+            "evidence_level": "partial-unverified",
+            "note": "官方文档只描述凭据类型与 Bearer 用法，无长度/字符集规范。"
+          },
+          "usage_query": {
+            "kind": "usage",
+            "endpoint": "GET https://api.openai.com/v1/organization/usage/completions（另有 Costs API）",
+            "method": "GET",
+            "auth": "Admin API key（sk-admin-）Bearer",
+            "scopes": "组织级",
+            "fields": "data[] 按 bucket_width(1m/1h/1d) 聚合 token 用量；next_page 游标分页",
+            "units": "tokens/USD",
+            "reset": "不适用（历史报表）",
+            "official_status": "public-documented",
+            "note": "官方明示这是用量/成本报表，不等于剩余额度；预付费余额本次未查到公开查询接口"
+          },
+          "sources": []
+        },
+        {
+          "name": "Codex（ChatGPT 订阅附赠）",
+          "auth_kind": "oauth_subscription",
+          "key_format": null,
+          "usage_query": {
+            "kind": "quota",
+            "endpoint": "本次未查到公开REST查询接口",
+            "auth": "ChatGPT 账号 OAuth（CLI 登录）",
+            "official_status": "official-client-undocumented",
+            "fields": "官方CLI解析响应头 x-codex-primary-used-percent / x-codex-primary-window-minutes / x-codex-primary-reset-at 及 secondary 同族（5小时窗+周窗）；CLI 内 /status 展示",
+            "units": "percent",
+            "reset": "5小时滚动窗 + 每周窗",
+            "note": "与 API /v1/organization/usage 完全分开计费"
+          },
+          "sources": []
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": "sk-proj-（默认项目key）/ sk-svcacct-（服务账号）/ sk-admin-（Admin API专用，不能调模型）/ sk-（遗留，不再签发）",
+          "length": "官方长度规范本次未查到；社区帖见 48/156 字符说法（community 级，未核实）",
+          "structure": "sk-<scope>- + base64url 随机体，常含 T3BlbkFJ（'OpenAI' 的 base64）标记；无校验位",
+          "evidence_level": "community",
+          "note": "官方文档只描述凭据类型与 Bearer 用法，不给长度/字符集规范；长度与结构来自社区归纳"
+        }
+      ],
+      "unresolved": [
+        "预付费余额（credit balance）本次未查到公开查询端点，仅有账单页",
+        "key 官方格式规范本次未查到（公开文档未给出）"
+      ],
+      "sources": [
+        {
+          "url": "https://developers.openai.com/api/reference/overview",
+          "quote": "Use a standard API key for application requests, an Admin API key for Administration endpoints"
+        },
+        {
+          "url": "https://developers.openai.com/cookbook/examples/completions_usage_api",
+          "quote": "url = \"https://api.openai.com/v1/organization/usage/completions\" ... Admin Key"
+        },
+        {
+          "url": "https://developers.openai.com/codex/pricing",
+          "quote": "5x or 20x more Codex usage than Plus ... Pay only for the tokens Codex uses, based on API pricing"
+        },
+        {
+          "url": "https://github.com/tigerless-labs/codex-agent/blob/main/codex-rs/codex-api/src/rate_limits.rs",
+          "quote": "x-codex-primary-used-percent / -primary-window-minutes / -primary-reset-at"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs/source"
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "region": "Global",
+      "products": [
+        {
+          "name": "Claude API（按量）",
+          "auth_kind": "api_key",
+          "key_format": {
+            "prefix": "sk-ant-（官方文档明示前缀）；常规key示例形如 sk-ant-api03-...；Admin key 为 sk-ant-admin...",
+            "length": null,
+            "structure": null,
+            "evidence_level": "official-prefix",
+            "note": "官方只给前缀，不给完整长度/结构规范"
+          },
+          "usage_query": {
+            "kind": "usage",
+            "endpoint": "GET https://api.anthropic.com/v1/organizations/usage_report/messages（另有 cost report）",
+            "method": "GET",
+            "auth": "Admin API key (sk-ant-admin...) 于 x-api-key 头 + anthropic-version: 2023-06-01；或 org:admin OAuth",
+            "scopes": "组织级，个人账号不可用；AWS Bedrock 版不可用",
+            "fields": "按 starting_at/ending_at/bucket_width 聚合 token 用量与成本",
+            "units": "tokens/USD",
+            "reset": "不适用",
+            "official_status": "public-documented",
+            "note": "用量报表≠剩余额度；本次未查到公开余额查询接口"
+          },
+          "sources": []
+        },
+        {
+          "name": "Claude Pro/Max 订阅（Claude Code）",
+          "auth_kind": "oauth_subscription",
+          "key_format": null,
+          "usage_query": {
+            "kind": "quota",
+            "endpoint": "本次未查到公开REST接口（CLI 内 /status 展示）",
+            "auth": "Claude 账号 OAuth（claude.ai 凭据登录 Claude Code）",
+            "official_status": "official-client-undocumented",
+            "fields": "CLI 展示当前会话期/周窗口用量百分比",
+            "units": "percent",
+            "reset": "5小时会话窗 + 周窗（官方帮助中心口径）",
+            "note": "设置 ANTHROPIC_API_KEY 会压过订阅走API计费；订阅与API credit 是两套账"
+          },
+          "sources": []
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": "sk-ant-（官方文档明示前缀）；常规key示例形如 sk-ant-api03-...；Admin key 为 sk-ant-admin...",
+          "length": null,
+          "structure": null,
+          "evidence_level": "official-prefix",
+          "note": "官方只给前缀，不给完整长度/结构规范"
+        }
+      ],
+      "unresolved": [
+        "key 完整长度/结构本次未查到官方规范",
+        "订阅用量本次未查到公开查询API"
+      ],
+      "sources": [
+        {
+          "url": "https://platform.claude.com/docs/en/get-api-key",
+          "quote": "The Console shows the full key, which starts with `sk-ant-`, only once, at creation"
+        },
+        {
+          "url": "https://platform.claude.com/docs/en/manage-claude/usage-cost-api",
+          "quote": "starting with `sk-ant-admin...` ... /v1/organizations/usage_report/messages"
+        },
+        {
+          "url": "https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-or-max-plan",
+          "quote": "connect your Pro or Max plan subscription to Claude Code ... API usage charges rather than using your subscription"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs"
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "region": "Global",
+      "products": [
+        {
+          "name": "Gemini API（AI Studio / Cloud Billing 按量）",
+          "auth_kind": "api_key",
+          "key_format": {
+            "prefix": null,
+            "length": null,
+            "structure": null,
+            "evidence_level": "docs-partial",
+            "note": "官方 api-key 文档页证实 Standard / Authorization (auth) 两类密钥及迁移计划（非账户实测）；所引用页面未显示具体前缀字面，具体前缀本次未核实。社区/公开资料见 AIza…/AQ.Ab… 字样，仅作 unverified note，不作为可执行规则。"
+          },
+          "usage_query": {
+            "kind": "quota",
+            "endpoint": "本次未查到公开余额/额度查询REST接口；限流按项目 RPM/TPM/RPD，RPD 太平洋时间午夜重置",
+            "auth": "key 于 x-goog-api-key 头或 ?key= 参数",
+            "official_status": "no-public-api",
+            "fields": "AI Studio Dashboard 可视用量；usage tiers（Free/Tier1-3）决定限流",
+            "units": "requests/tokens",
+            "reset": "RPD 每日（太平洋午夜）",
+            "note": "付费走 Cloud Billing，无余额端点"
+          },
+          "sources": []
+        },
+        {
+          "name": "Gemini CLI / Code Assist（免费层与 Google AI Pro/Ultra、Workspace 订阅）",
+          "auth_kind": "oauth_subscription",
+          "key_format": null,
+          "usage_query": {
+            "kind": "quota",
+            "endpoint": "本次未查到公开查询API",
+            "auth": "Google 账号 OAuth（CLI 登录）",
+            "official_status": "no-public-api",
+            "fields": "官方文档：Code Assist Individual 1000 req/日；Google AI Pro 1500/日；Ultra 2000/日；Workspace Code Assist Standard 1500/Enterprise 2000；API key 免费层 250/日",
+            "units": "requests/user/day",
+            "reset": "每日重置",
+            "note": "纠正前期结论：Google 订阅并非一概不能编程使用——AI Studio 订阅确实不覆盖外部API（官方明示 AI Studio UI only），但 Gemini CLI 用 Google 账号登录即消耗 AI Pro/Ultra 订阅的更高配额，是官方支持的编程使用通道"
+          },
+          "sources": []
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": null,
+          "length": null,
+          "structure": null,
+          "evidence_level": "docs-partial",
+          "note": "Standard/Auth 两类密钥及迁移已获文档支持；具体前缀（社区见 AIza…/AQ.Ab… 字样）本次未核实，记为 unverified note；无长度规范（本次未查到）。"
+        }
+      ],
+      "unresolved": [
+        "AQ./AIza key 完整长度：本次未查到官方规范",
+        "Code Assist 订阅用量查询API：本次未查到公开接口"
+      ],
+      "sources": [
+        {
+          "url": "https://ai.google.dev/gemini-api/docs/api-key",
+          "quote": "Standard API keys ... Authorization (auth) keys: Bound directly to a Google Cloud service account"
+        },
+        {
+          "url": "https://ai.google.dev/gemini-api/docs/google-ai-plans",
+          "quote": "Google AI plan benefits ... apply only within the Google AI Studio web interface"
+        },
+        {
+          "url": "https://github.com/google-gemini/gemini-cli/blob/main/docs/resources/quota-and-pricing.md",
+          "quote": "Google AI Pro 1,500 requests / Google AI Ultra 2,000 requests per user per day"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs/source"
+    },
+    {
+      "id": "xai",
+      "name": "xAI",
+      "region": "Global",
+      "products": [
+        {
+          "name": "xAI API（Grok，按量）",
+          "auth_kind": "api_key",
+          "key_format": {
+            "prefix": null,
+            "length": null,
+            "structure": null,
+            "evidence_level": "unverified",
+            "note": "官方文档未公开 key 格式规范"
+          },
+          "usage_query": {
+            "kind": "balance",
+            "endpoint": "GET https://management-api.x.ai/v1/billing/teams/{team_id}/prepaid/balance",
+            "method": "GET",
+            "auth": "Management key（与推理key分开，Console Settings>Management Keys 创建）Bearer + team_id",
+            "scopes": "Management Keys Read 权限",
+            "fields": "倒记账：changes[]（PURCHASE 负值/SPEND 正值，string 美分），total.val 为剩余余额的负值美分；POST /v1/billing/teams/{team_id}/usage 可查用量",
+            "units": "USD cents (string)",
+            "reset": "不适用（预付费账本，周期末入账）",
+            "official_status": "official-console-undocumented",
+            "note": "端点见官方 Management API 概述（'monitoring prepaid credit balances'）与官方 Console 文档链接，但逐字段规格在 REST 参考页未见；账本为周期入账，周期中读数≈实时余额-当期未入账消费；注意：此为 Management key（管理凭据）查询，不可冒充普通推理 API key 即可查询。"
+          },
+          "sources": []
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": null,
+          "length": null,
+          "structure": null,
+          "evidence_level": "unverified",
+          "note": "官方文档未公开 key 格式规范"
+        }
+      ],
+      "unresolved": [
+        "未发现面向编程工具的订阅套餐（官方定价页仅按token计费）——标未核实，不据此判定不存在",
+        "推理key格式本次未查到官方规范",
+        "prepaid/balance 端点逐字段官方规格未查到"
+      ],
+      "sources": [
+        {
+          "url": "https://docs.x.ai/developers/rest-api-reference/management",
+          "quote": "base URL ... https://management-api.x.ai ... monitoring prepaid credit balances and usage deductions"
+        },
+        {
+          "url": "https://docs.x.ai/developers/rest-api-reference/management/auth",
+          "quote": "API keys ... included on requests as a HTTP Bearer token. API keys are bound to teams"
+        },
+        {
+          "url": "https://github.com/steipete/CodexBar/blob/main/docs/xai.md",
+          "quote": "GET .../prepaid/balance ... inverted ledger in string USD cents"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs/source"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "region": "CN/Global（同一平台）",
+      "products": [
+        {
+          "name": "DeepSeek 开放平台（按量）",
+          "auth_kind": "api_key",
+          "key_format": {
+            "prefix": "sk-（社区通用；格式官方文档未明示，本次未查到）",
+            "length": null,
+            "structure": null,
+            "evidence_level": "community",
+            "note": "官方认证文档仅给 Bearer 用法"
+          },
+          "usage_query": {
+            "kind": "balance",
+            "endpoint": "GET https://api.deepseek.com/user/balance",
+            "method": "GET",
+            "auth": "常规 API key Bearer",
+            "scopes": "账户级（非 per-key）",
+            "fields": "is_available:boolean; balance_infos[]:{currency:CNY|USD, total_balance, granted_balance, topped_up_balance（字符串）}",
+            "units": "货币字符串",
+            "reset": "不适用（预付费余额，赠送部分有有效期）",
+            "official_status": "public-documented"
+          },
+          "sources": []
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": "sk-（社区通用；格式官方文档未明示，本次未查到）",
+          "length": null,
+          "structure": null,
+          "evidence_level": "community",
+          "note": "官方认证文档仅给 Bearer 用法"
+        }
+      ],
+      "unresolved": [
+        "未见编程订阅套餐（按量为主，可作 Claude Code/OpenCode 后端但按API计费）——标未核实",
+        "key 格式本次未查到官方规范"
+      ],
+      "sources": [
+        {
+          "url": "https://api-docs.deepseek.com/api/get-user-balance",
+          "quote": "GET /user/balance ... is_available ... total_balance ... granted_balance ... topped_up_balance"
+        },
+        {
+          "url": "https://api-docs.deepseek.com/quick_start/authentication",
+          "quote": "base_url https://api.deepseek.com ... Authorization: Bearer"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs+official-page-review"
+    },
+    {
+      "id": "volcengine-ark",
+      "name": "字节跳动（火山引擎·方舟）",
+      "region": "CN（cn-beijing）+ BytePlus 海外",
+      "products": [
+        {
+          "name": "方舟 Ark 开放API（按量/后付费）",
+          "auth_kind": "api_key",
+          "key_format": {
+            "prefix": null,
+            "length": null,
+            "structure": null,
+            "evidence_level": "unverified",
+            "note": "官方文档只讲控制台生成与环境变量配置，未公开格式规范"
+          },
+          "usage_query": {
+            "kind": "usage",
+            "endpoint": "管控面 OpenAPI（open.volcengineapi.com，Action=ListUsage/用量明细导出等，火山 AK/SK SigV4 签名）",
+            "method": "GET/POST（Action 风格）",
+            "auth": "火山引擎 AccessKey/SecretKey（与推理 Bearer API key 是两套凭据）",
+            "scopes": "账号级",
+            "fields": "推理用量/用量明细导出",
+            "units": "tokens",
+            "reset": "账期",
+            "official_status": "public-documented",
+            "note": "推理 Bearer key 本身无余额查询接口"
+          },
+          "sources": []
+        },
+        {
+          "name": "方舟 Coding Plan（Lite/Pro）",
+          "auth_kind": "subscription_api_key",
+          "key_format": {
+            "prefix": null,
+            "length": null,
+            "structure": null,
+            "evidence_level": "unverified",
+            "note": "官方文章称 Coding Plan API Key 与后付费 API Key 为同一「API Key管理」页生成的通用凭证；格式本次未查到"
+          },
+          "usage_query": {
+            "kind": "quota",
+            "endpoint": "管控面 OpenAPI GetCodingPlanUsage（查询 Coding Plan 套餐用量）；官方 CLI：arkcli usage plan --product coding-plan",
+            "method": "POST Action 风格（SigV4 AK/SK）",
+            "auth": "火山 AK/SK（复用推理 Bearer key 会被网关 400 InvalidAuthorization 拒绝）",
+            "scopes": "账号级",
+            "fields": "session(5h)/weekly/monthly 窗口已用百分比 + 重置时间（秒级）；逐字段官方规格本次未查到，官方ark-cli口径",
+            "units": "percent",
+            "reset": "5小时/周/自然月",
+            "official_status": "official-client-undocumented",
+            "note": ";注意：此为火山 AK/SK 管理凭据查询，不可冒充普通推理 Bearer key 即可查询。"
+          },
+          "sources": []
+        },
+        {
+          "name": "方舟 Agent Plan（AFP）",
+          "auth_kind": "subscription_api_key",
+          "key_format": {
+            "prefix": null,
+            "length": null,
+            "structure": null,
+            "evidence_level": "unverified"
+          },
+          "usage_query": {
+            "kind": "quota",
+            "endpoint": "管控面 OpenAPI GetAFPUsage（获取套餐 AFP 额度，返回绝对额度 Quota/Used）",
+            "method": "POST Action 风格（SigV4）",
+            "auth": "火山 AK/SK",
+            "scopes": "账号级",
+            "fields": "5h/weekly/monthly 窗口 Quota/Used 绝对值",
+            "units": "额度绝对值",
+            "reset": "5小时/周/月",
+            "official_status": "official-client-undocumented",
+            "note": ";注意：此为火山 AK/SK 管理凭据查询，不可冒充普通推理 Bearer key 即可查询。"
+          },
+          "sources": []
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": null,
+          "length": null,
+          "structure": null,
+          "evidence_level": "unverified",
+          "note": "官方文档只讲控制台生成与环境变量配置，未公开格式规范"
+        },
+        {
+          "prefix": null,
+          "length": null,
+          "structure": null,
+          "evidence_level": "unverified",
+          "note": "官方文章称 Coding Plan API Key 与后付费 API Key 为同一「API Key管理」页生成的通用凭证；格式本次未查到"
+        },
+        {
+          "prefix": null,
+          "length": null,
+          "structure": null,
+          "evidence_level": "unverified"
+        }
+      ],
+      "unresolved": [
+        "Coding/Agent Plan 专用 key 与后付费 key 是否同前缀/同格式未核实",
+        "GetCodingPlanUsage 逐字段官方规格本次未查到"
+      ],
+      "sources": [
+        {
+          "url": "https://www.volcengine.com/docs/82379/1541594",
+          "quote": "管理 Agent / Coding Plan ... 获取套餐 AFP 额度 获取套餐用量详情 ... 查询 Coding Plan 支持的模型列表"
+        },
+        {
+          "url": "https://www.volcengine.com/article/38138",
+          "quote": "Coding Plan API Key ... 仅可在Coding Plan支持的AI编程工具中使用，不得用于直接API调用 ... 额度按5小时、周、月周期自动刷新"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/volcengine/ark-cli/main/dsh-plugins/ark-plan-api/README.md",
+          "quote": "ark-agent-plan-cn /api/plan | ark-coding-plan-cn /api/coding | ark-cn /api/v3/compatible"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs/source"
+    },
+    {
+      "id": "aliyun-bailian",
+      "name": "阿里云（百炼 Model Studio / 通义）",
+      "region": null,
+      "products": [
+        {
+          "name": "百炼通用 API（按量）",
+          "region": "CN 北京 / SG / US / DE 多地域",
+          "auth_kind": "api-key",
+          "key_format": {
+            "prefix": "sk-",
+            "structure": "sk- + 随机串（文档未给长度规范）",
+            "evidence_level": "docs-prefix-only"
+          },
+          "usage_query": {
+            "kind": "balance(账号级)+usage(账单)",
+            "endpoint": "BSS QueryAccountBalance / ModelStudio GetBillingOverview",
+            "method": "GET(阿里云 OpenAPI 签名)",
+            "auth": "阿里云 AK/SK 或 RAM",
+            "official_status": "official-documented",
+            "note": "账单是金额消耗，不是剩余额度；百炼本身无独立余额概念，走阿里云账号余额"
+          }
+        },
+        {
+          "name": "百炼 Coding Plan",
+          "region": "CN(coding.dashscope) 与国际站(coding-intl.dashscope)分端点",
+          "auth_kind": "api-key",
+          "key_format": {
+            "prefix": "sk-sp-",
+            "structure": "sk-sp- + 随机串",
+            "evidence_level": "docs-prefix-only",
+            "note": "；注意：阿里/腾讯文档均见 sk-sp- 前缀，两家 key 前缀重合，目前仅记录文档所见，后续需做完整格式核验，不据此声称任何 key 均无法区分。"
+          },
+          "usage_query": {
+            "kind": "quota(5h/周/月额度)",
+            "endpoint": null,
+            "method": null,
+            "auth": null,
+            "official_status": "console-only-undocumented",
+            "reset": "5h动态刷新/周一00:00(UTC+8)周重置/订阅月对应日月重置",
+            "note": "未发现公开额度查询 API，控制台查看——未核实接口"
+          }
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": "sk-",
+          "structure": "sk- + 随机串（文档未给长度规范）",
+          "evidence_level": "docs-prefix-only"
+        },
+        {
+          "prefix": "sk-sp-",
+          "structure": "sk-sp- + 随机串",
+          "evidence_level": "docs-prefix-only"
+        }
+      ],
+      "unresolved": [
+        "百炼通用 key 的精确长度/字符集本次未查到官方规范",
+        "Coding Plan 额度是否有公开查询 API 未核实"
+      ],
+      "sources": [
+        {
+          "url": "https://help.aliyun.com/zh/model-studio/get-api-key",
+          "quote": "百炼通用 API Key 格式 sk-xxxxx；Coding Plan 专属 key 格式 sk-sp-xxxxx，两套独立"
+        },
+        {
+          "url": "https://help.aliyun.com/zh/user-center/developer-reference/api-bssopenapi-2017-12-14-queryaccountbalance",
+          "quote": "账户余额查询用 BSS OpenAPI QueryAccountBalance（阿里云账号级，非百炼专属）"
+        },
+        {
+          "url": "https://help.aliyun.com/zh/model-studio/api-modelstudio-2026-02-10-getbillingoverview",
+          "quote": "百炼自有账单总览 API GetBillingOverview（账单≠余额）"
+        },
+        {
+          "url": "https://help.aliyun.com/zh/model-studio/coding-plan-faq",
+          "quote": "Coding Plan 有 CN(coding.dashscope) 与国际站(coding-intl.dashscope)两套端点，key/端点独立于通用按量"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs"
+    },
+    {
+      "id": "zhipu-glm",
+      "name": "智谱 AI（BigModel / z.ai）",
+      "region": null,
+      "products": [
+        {
+          "name": "开放平台 API（按量）",
+          "region": "CN open.bigmodel.cn（z.ai 为海外线，本次未单独取证）",
+          "auth_kind": "api-key（可 Bearer 直用或派生 JWT）",
+          "key_format": {
+            "prefix": null,
+            "structure": "id.secret 两段点分（官方 JWT 示例按 '.' 拆分）；前缀官方文档未给出",
+            "evidence_level": "docs-structure-only"
+          },
+          "usage_query": {
+            "kind": null,
+            "endpoint": null,
+            "method": null,
+            "auth": null,
+            "official_status": "not-found",
+            "note": "未找到公开余额查询 API——未核实"
+          }
+        },
+        {
+          "name": "GLM Coding Plan",
+          "region": "CN open.bigmodel.cn /api/coding/paas/v4、/api/anthropic、/api/v1",
+          "auth_kind": "api-key",
+          "key_format": {
+            "prefix": null,
+            "structure": "套餐页新建 API Key；团队版 Key 与平台其他 Key 明确不通用；个人版与按量 key 是否同一把，官方文档未明说（用户经验：同一 key 可走 coding/按量端点，与文档不冲突）",
+            "evidence_level": "docs-partial"
+          },
+          "usage_query": {
+            "kind": "quota(5h+周积分)",
+            "endpoint": null,
+            "method": null,
+            "auth": null,
+            "official_status": "console-only-undocumented",
+            "reset": "5h动态刷新；周积分自下单起7天周期",
+            "note": "控制台用量统计查看；财务-费用明细查 token 消耗；本次未查到公开 API——未核实"
+          }
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": null,
+          "structure": "id.secret 两段点分（官方 JWT 示例按 '.' 拆分）；前缀官方文档未给出",
+          "evidence_level": "docs-structure-only"
+        },
+        {
+          "prefix": null,
+          "structure": "套餐页新建 API Key；团队版 Key 与平台其他 Key 明确不通用；个人版与按量 key 是否同一把，官方文档未明说（用户经验：同一 key 可走 coding/按量端点，与文档不冲突）",
+          "evidence_level": "docs-partial"
+        }
+      ],
+      "unresolved": [
+        "key key 前缀官方文档未给出，本次未查到",
+        "个人版 Coding key 与按量 key 是否同 key 未由文档证实",
+        "无公开余额/积分查询 API"
+      ],
+      "sources": [
+        {
+          "url": "https://docs.bigmodel.cn/cn/guide/develop/http/introduction",
+          "quote": "API Key 结构为 id.secret 两段（JWT 鉴权按 '.' 拆分），亦支持直接 Bearer 使用"
+        },
+        {
+          "url": "https://docs.bigmodel.cn/cn/coding-plan/quick-start",
+          "quote": "Coding Plan 个人版需在套餐页单独新建 API Key；团队版 Key 与平台其他 Key 不通用——注意：官方仅明确团队版不通用，个人版是否与按量 key 通用文档未明说"
+        },
+        {
+          "url": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+          "quote": "Coding Plan 额度=5小时积分+周积分，在控制台用量统计查看；额度耗尽不消耗其他资源包/账户余额"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs"
+    },
+    {
+      "id": "moonshot-kimi",
+      "name": "月之暗面（Kimi 开放平台）",
+      "region": null,
+      "products": [
+        {
+          "name": "开放平台 API（按量）",
+          "region": "CN api.moonshot.cn / 国际站独立",
+          "auth_kind": "api-key",
+          "key_format": {
+            "prefix": "sk-（社区通用写法，前缀官方文档未明示，本次未查到）",
+            "structure": null,
+            "evidence_level": "docs-partial"
+          },
+          "usage_query": {
+            "kind": "balance",
+            "endpoint": "GET https://api.moonshot.cn/v1/users/me/balance",
+            "method": "GET",
+            "auth": "Bearer <api key>",
+            "official_status": "official-documented",
+            "units": "人民币元（available/voucher/cash_balance）",
+            "reset": null
+          }
+        },
+        {
+          "name": "Kimi Code 订阅（会员编程权益）",
+          "region": "CN api.kimi.com/coding",
+          "auth_kind": "api-key（或官方客户端 OAuth）",
+          "key_format": {
+            "prefix": null,
+            "structure": "Kimi Code 控制台创建，最多5个，仅创建时显示一次",
+            "evidence_level": "docs-partial"
+          },
+          "usage_query": {
+            "kind": "quota",
+            "endpoint": null,
+            "method": null,
+            "auth": null,
+            "official_status": "not-found",
+            "reset": "每5小时约300-1200次请求，并发上限30",
+            "note": "无公开查询 API——未核实；与开放平台 key 是否通用未核实"
+          }
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": "sk-（社区通用写法，前缀官方文档未明示，本次未查到）",
+          "structure": null,
+          "evidence_level": "docs-partial"
+        },
+        {
+          "prefix": null,
+          "structure": "Kimi Code 控制台创建，最多5个，仅创建时显示一次",
+          "evidence_level": "docs-partial"
+        }
+      ],
+      "unresolved": [
+        "key 前缀官方未明示",
+        "Kimi Code key 与开放平台 key 是否通用",
+        "Coding 额度查询 API 未核实"
+      ],
+      "sources": [
+        {
+          "url": "https://platform.kimi.com/docs/api/balance",
+          "quote": "API Key 由控制台创建；国内 platform.kimi.com 与国际 platform.kimi.ai 的 key 完全独立，混用 401"
+        },
+        {
+          "url": "https://www.kimi.com/help/kimi-code/membership-guide",
+          "quote": "Kimi Code 订阅（Kimi 会员编程权益）用独立 key：Kimi Code 控制台创建（最多5个），端点 api.kimi.com/coding/v1（OpenAI）与 /coding/（Anthropic），模型 kimi-for-coding；官方客户端可 OAuth"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs"
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax（开放平台）",
+      "region": null,
+      "products": [
+        {
+          "name": "开放平台 API（按量）",
+          "region": "CN api.minimaxi.com / Global platform.minimax.io（分站，key 独立管理）",
+          "auth_kind": "api-key",
+          "key_format": {
+            "prefix": null,
+            "structure": "接口密钥页创建；前缀/结构官方文档未给出，本次未查到",
+            "evidence_level": "docs-partial"
+          },
+          "usage_query": {
+            "kind": "balance",
+            "endpoint": null,
+            "method": null,
+            "auth": null,
+            "official_status": "console-only-undocumented",
+            "note": "控制台 账户管理>余额 + 余额预警；本次未查到公开余额 API——未核实"
+          }
+        },
+        {
+          "name": "Token Plan 订阅（Plus/Max/Ultra）",
+          "region": "CN www.minimaxi.com / Global 同构",
+          "auth_kind": "api-key（订阅 Key，每团队一把）",
+          "key_format": {
+            "prefix": null,
+            "structure": "订阅管理页查看；官方文档未给出前缀，本次未查到（社区见 sk-cp/eyJ 等，未在官方文档证实，不采信）",
+            "evidence_level": "docs-partial"
+          },
+          "usage_query": {
+            "kind": "quota",
+            "endpoint": "GET https://www.minimaxi.com/v1/token_plan/remains",
+            "method": "GET",
+            "auth": "Bearer <订阅Key>",
+            "official_status": "official-documented",
+            "reset": "5小时固定窗口+周窗口，不结转；已购积分独立有效期",
+            "note": "官方 FAQ 公开：返回 token_plan 剩余额度（remains），属订阅套餐额度 quota 而非现金余额 cash_balance。"
+          }
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": null,
+          "structure": "接口密钥页创建；前缀/结构官方文档未给出，本次未查到",
+          "evidence_level": "docs-partial"
+        },
+        {
+          "prefix": null,
+          "structure": "订阅管理页查看；官方文档未给出前缀，本次未查到（社区见 sk-cp/eyJ 等，未在官方文档证实，不采信）",
+          "evidence_level": "docs-partial"
+        }
+      ],
+      "unresolved": [
+        "两类 key key 前缀官方文档未给出，本次未查到",
+        "按量余额是否有公开 API 未核实（官方文档未见）"
+      ],
+      "sources": [
+        {
+          "url": "https://platform.minimaxi.com/docs/guides/quickstart-preparation",
+          "quote": "按量 API Key（接口密钥创建）与 Token Plan 订阅 Key 相互独立、不能混用"
+        },
+        {
+          "url": "https://platform.minimaxi.com/docs/token-plan/faq",
+          "quote": "Token Plan 套餐余量有官方查询接口 GET https://www.minimaxi.com/v1/token_plan/remains（Bearer 订阅Key）"
+        },
+        {
+          "url": "https://platform.minimaxi.com/docs/faq/about-account",
+          "quote": "按量账户余额在控制台 账户管理>余额 查看（支持余额预警）；官方文档未列出余额查询 API——未核实"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs"
+    },
+    {
+      "id": "tencent-hunyuan",
+      "name": "腾讯云（混元 / TokenHub）",
+      "region": null,
+      "products": [
+        {
+          "name": "混元 API（按量，迁移至 TokenHub）",
+          "region": "CN api.lkeap.cloud.tencent.com",
+          "auth_kind": "api-key",
+          "key_format": {
+            "prefix": "sk-",
+            "structure": "控制台创建，长度/字符集本次未查到官方规范",
+            "evidence_level": "docs-prefix-only"
+          },
+          "usage_query": {
+            "kind": "balance(账号级)",
+            "endpoint": "billing.tencentcloudapi.com DescribeAccountBalance",
+            "method": "POST(腾讯云 TC3 签名)",
+            "auth": "腾讯云 AK/SK",
+            "official_status": "official-documented",
+            "units": "分",
+            "note": "账号级余额，非产品专属"
+          }
+        },
+        {
+          "name": "Coding Plan（Lite/Pro）",
+          "region": "CN api.lkeap.cloud.tencent.com/coding",
+          "auth_kind": "api-key（专属）",
+          "key_format": {
+            "prefix": "sk-sp-",
+            "structure": "sk-sp-xxxx",
+            "evidence_level": "docs-prefix-only",
+            "note": "；注意：阿里/腾讯文档均见 sk-sp- 前缀，两家 key 前缀重合，目前仅记录文档所见，后续需做完整格式核验，不据此声称任何 key 均无法区分。"
+          },
+          "usage_query": {
+            "kind": "quota(5h/周/月请求次数)",
+            "endpoint": null,
+            "method": null,
+            "auth": null,
+            "official_status": "console-only-undocumented",
+            "reset": "5h/周一00:00(UTC+8)/订阅月对应日",
+            "note": "用量在 Coding Plan 页面查看；无公开查询 API——未核实；禁止 API 后端调用"
+          }
+        },
+        {
+          "name": "Token Plan（TokenHub，通用+Hy 系列）",
+          "region": "CN tokenhub.tencentcloudapi.com",
+          "auth_kind": "api-key（sk-tp- 前缀见官方脱敏示例）",
+          "key_format": {
+            "prefix": "sk-tp-（来自官方 API 脱敏示例，非完整规范）",
+            "structure": null,
+            "evidence_level": "docs-partial"
+          },
+          "usage_query": {
+            "kind": "quota(套餐/额度包)",
+            "endpoint": "tokenhub.tencentcloudapi.com DescribeTokenPlanList / DescribeTokenPlanApiKeyList",
+            "method": "POST(腾讯云签名)",
+            "auth": "腾讯云 AK/SK",
+            "official_status": "official-documented",
+            "note": "返回套餐与额度中心主额度包详情；密钥仅脱敏返回"
+          }
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": "sk-",
+          "structure": "控制台创建，长度/字符集本次未查到官方规范",
+          "evidence_level": "docs-prefix-only"
+        },
+        {
+          "prefix": "sk-sp-",
+          "structure": "sk-sp-xxxx",
+          "evidence_level": "docs-prefix-only"
+        },
+        {
+          "prefix": "sk-tp-（来自官方 API 脱敏示例，非完整规范）",
+          "structure": null,
+          "evidence_level": "docs-partial"
+        }
+      ],
+      "unresolved": [
+        "按量 key 长度/字符集本次未查到规范",
+        "Token Plan 剩余额度是否有专用查询接口（DescribeTokenPlanList 含额度包详情，是否等价未核实）"
+      ],
+      "sources": [
+        {
+          "url": "https://cloud.tencent.com/document/product/1729/111008",
+          "quote": "混元按量 API Key 控制台创建（主账号操作），前缀/结构文档未给规范"
+        },
+        {
+          "url": "https://cloud.tencent.com/document/product/1823/130092",
+          "quote": "Coding Plan 专属 key 格式 sk-sp-xxxx，与按量 key（sk-xxxx）及 Base URL 明确不互通"
+        },
+        {
+          "url": "https://cloud.tencent.com/document/product/1823/132269",
+          "quote": "TokenHub Token Plan 官方管控面 API：DescribeTokenPlanList（含额度中心主额度包）等"
+        },
+        {
+          "url": "https://cloud.tencent.com/document/api/1823/132275",
+          "quote": "TokenHub Token Plan API 文档（API 列表页 132275）"
+        },
+        {
+          "url": "https://cloud.tencent.com/document/product/555/20253",
+          "quote": "云账号余额查询 DescribeAccountBalance（billing.tencentcloudapi.com，费用中心），单位分"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs"
+    },
+    {
+      "id": "baidu-qianfan",
+      "name": "百度智能云（千帆 ModelBuilder）",
+      "region": null,
+      "products": [
+        {
+          "name": "千帆 MaaS API（按量）",
+          "region": "CN qianfan.baidubce.com",
+          "auth_kind": "api-key（可细粒度授权）",
+          "key_format": {
+            "prefix": "bce-v3/ALTAK-（官方示例所见）",
+            "structure": "bce-v3/ 前缀 + ALTAK 段；旧版 ALTAK- 亦存在（未核实）",
+            "evidence_level": "docs-example-partial"
+          },
+          "usage_query": {
+            "kind": "balance(账号级)",
+            "endpoint": "billing.baidubce.com/v1/finance/cash/balance",
+            "method": "POST(BCE 签名)",
+            "auth": "百度智能云 AK/SK",
+            "official_status": "official-documented",
+            "units": "元(cashBalance)",
+            "note": "账号级；千帆本身另有资源包/点数，公开查询接口未核实"
+          }
+        },
+        {
+          "name": "千帆 Coding Plan（Lite/Pro）",
+          "region": "CN qianfan.baidubce.com/v2/coding、/anthropic/coding",
+          "auth_kind": "api-key（专属）",
+          "key_format": {
+            "prefix": null,
+            "structure": "订阅管理页创建专属 key，格式文档未给",
+            "evidence_level": "docs-partial"
+          },
+          "usage_query": {
+            "kind": "quota(5h/周/月请求次数)",
+            "endpoint": null,
+            "method": null,
+            "auth": null,
+            "official_status": "console-only-undocumented",
+            "reset": "5h滑动窗口/周一00:00(UTC+8)/月订阅日",
+            "note": "订阅管理页查看用量；无公开查询 API——未核实"
+          }
+        }
+      ],
+      "key_known_features": [
+        {
+          "prefix": "bce-v3/ALTAK-（官方示例所见）",
+          "structure": "bce-v3/ 前缀 + ALTAK 段；旧版 ALTAK- 亦存在（未核实）",
+          "evidence_level": "docs-example-partial"
+        },
+        {
+          "prefix": null,
+          "structure": "订阅管理页创建专属 key，格式文档未给",
+          "evidence_level": "docs-partial"
+        }
+      ],
+      "unresolved": [
+        "Coding Plan key 前缀本次未查到",
+        "千帆资源包/点数余量查询接口未核实"
+      ],
+      "sources": [
+        {
+          "url": "https://cloud.baidu.com/doc/qianfan/s/wmh8l6tnf",
+          "quote": "千帆 API Key 形如 bce-v3/ALTAK-xxx（官方文档示例），支持细粒度权限（AppID+接入点）"
+        },
+        {
+          "url": "https://cloud.baidu.com/doc/Finance/s/Skhtyytwu",
+          "quote": "账号余额查询 POST billing.baidubce.com/v{version}/finance/cash/balance，BCE 签名鉴权"
+        },
+        {
+          "url": "https://cloud.baidu.com/doc/qianfan/s/imlg0beiu",
+          "quote": "Coding Plan 专属 API Key 只能用于专属端点 qianfan.baidubce.com/v2/coding（OpenAI）与 /anthropic/coding（Anthropic）；额度5h滑动窗口/周一00:00/月订阅日重置，不消耗账户余额"
+        }
+      ],
+      "verified_at": "2026-09-22",
+      "verification_method": "docs"
+    }
+  ]
+}

@@ -67,9 +67,9 @@ test('HOURS_PER_CELL is gone from source; cell duration derives from windowSecon
   // ZETA 10 天窗：格时值 = 864000/84 = 2h52m30s。
   const zeta = { windowSeconds: 10 * DAY }
   assert.equal(sandbox.cellDurationSeconds(zeta), (10 * DAY) / 84)
-  // OMEGA 30 天窗：格时值 = 720h/84 ≈ 8.57h。
+  // OMEGA 30 天窗：月区，8 小时一格（不再塞进 84 格）。
   const omega = { windowSeconds: 30 * DAY }
-  assert.equal(sandbox.cellDurationSeconds(omega), (30 * DAY) / 84)
+  assert.equal(sandbox.cellDurationSeconds(omega), 8 * 3600)
   // SIGMA 5h 短窗：格时值 = 18000/84 ≈ 214s。
   const sigma = { windowSeconds: 5 * 3600 }
   assert.equal(sandbox.cellDurationSeconds(sigma), (5 * 3600) / 84)
@@ -88,9 +88,9 @@ test('cell duration labels: 7d→2 hours, 30d→8.6 hours, 10d→2.9 hours, 5h b
 // ---------------------------------------------------------------------------
 // 3) 日线只在整日倍数窗口画（定稿公式：每 86400/格时值 格一条）
 // ---------------------------------------------------------------------------
-test('day-cell interval: 7d→12, 30d→3 (2.8 rounds), 10d→8 (8.4 rounds), 3d→28, burst 5h→none', () => {
+test('day-cell interval: 7d→12, 30d monthly packed→none, 10d→8 (8.4 rounds), 3d→28, burst 5h→none', () => {
   assert.equal(sandbox.dayCellIntervalOf({ windowSeconds: 7 * DAY }), 12)
-  assert.equal(sandbox.dayCellIntervalOf({ windowSeconds: 30 * DAY }), 3)
+  assert.equal(sandbox.dayCellIntervalOf({ windowSeconds: 30 * DAY }), null)
   assert.equal(sandbox.dayCellIntervalOf({ windowSeconds: 10 * DAY }), 8)
   assert.equal(sandbox.dayCellIntervalOf({ windowSeconds: 3 * DAY }), 28)
   assert.equal(sandbox.dayCellIntervalOf({ windowSeconds: 12 * DAY }), 7)

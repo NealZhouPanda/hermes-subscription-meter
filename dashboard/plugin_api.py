@@ -52,10 +52,12 @@ CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 GROK_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
 DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
 DEEPSEEK_COST_URL = "https://platform.deepseek.com/api/v0/usage/by_api_key/cost"
-# Command Code 配额：/alpha/* 用 API key 鉴权（Authorization: Bearer），旧的
+# Command Code 配额：/alpha/* 用 API key 鉴权（Authorization: Bearer）。
 # /internal/* 只认浏览器 session cookie（2026-09-21 实测 API key → 401），
 # 供应商自己的 CLI 1.58.1 也走 /alpha/*，所以以 API key 路径为准。
 COMMANDCODE_BILLING_URL = "https://api.commandcode.ai/alpha/billing/credits"
+# 套餐账单周期（月额度按它刷新，不是日历月）：同一条 /alpha 路径、同一把 key。
+COMMANDCODE_SUBSCRIPTION_URL = "https://api.commandcode.ai/alpha/billing/subscriptions"
 # MiniMax Token Plan（订阅套餐）用量：只有套餐 Key 能查的开放平台端点，CN/全球
 # base 共用同一路径（2026-09-12 实测：CN 真 key → status_code=0 带 model_remains；
 # 全球 base 无效 key → 1004 cookie is missing，即路径有效、只是鉴权失败）。
@@ -67,6 +69,8 @@ ALIYUN_BSS_VERSION = "2017-12-14"  # BssOpenApi QueryAccountBalance
 DEEPSEEK_TZ_SECONDS = 8 * 60 * 60
 WEEKLY_SECONDS = 7 * 86400
 FIVE_HOUR_SECONDS = 5 * 3600
+DAY_SECONDS = 86400
+MONTHLY_CELL_SECONDS = 8 * 3600  # 3 cells/day; monthly quota window only (28–31d)
 # MiniMax Token Plan：5h 窗额度 = 周额度 × 1/10（2026-09-12 定，与旧前端表
 # SHORT_WINDOW_RATIO 的 MINIMAX 值同源）。端点不返回可用绝对值（*_total_count 恒 0），
 # 所以由吐出这两行的 fetcher 在周期行上声明；前端 M0 起只认行上的 burstShare。
@@ -131,6 +135,10 @@ class ProviderSetting(BaseModel):
     label: str
     kind: str
     enabled: bool = True
+    # Extra switch, only meaningful when a calendar-month quota window exists.
+    # Default off: monthly rows stay off the board until the user turns them on.
+    hasMonthly: bool = False
+    monthlyEnabled: bool = False
     status: str = "unknown"
     actionHint: str = ""
     checkedAt: Optional[float] = None
@@ -141,7 +149,8 @@ class ProviderSettingsPayload(BaseModel):
 
 
 class ProviderVisibilityUpdate(BaseModel):
-    enabled: bool
+    enabled: Optional[bool] = None
+    monthlyEnabled: Optional[bool] = None
 
 
 # --- A/B/C. 发现 + 识别（FetcherSpec，非显示名单） ----------------------------------
@@ -627,6 +636,9 @@ def _write_plugin_settings(settings: dict[str, Any]) -> None:
             # Patch the leaf under the host lock, never an old sibling snapshot.
             for provider_id, enabled in value.items():
                 context.set_config(f"visibility.{provider_id}", enabled)
+        elif key == "monthlyVisibility":
+            for provider_id, enabled in value.items():
+                context.set_config(f"monthlyVisibility.{provider_id}", enabled)
         else:
             context.set_config(key, value)
 
@@ -637,6 +649,100 @@ def set_provider_visibility(provider_id: str, enabled: bool) -> None:
         raise ValueError(f"unknown provider: {provider_id}")
     _write_plugin_settings({"visibility": {provider_id: enabled}})
     _cache.update(at=0.0, payload=None, identity_overrides={})
+
+
+def set_monthly_visibility(provider_id: str, enabled: bool) -> None:
+    known_ids = {identity["id"] for identity in _identify_all()}
+    if provider_id not in known_ids:
+        raise ValueError(f"unknown provider: {provider_id}")
+    _write_plugin_settings({"monthlyVisibility": {provider_id: enabled}})
+
+
+def monthly_days(window_seconds: Optional[int]) -> Optional[int]:
+    """Calendar-month quota window → 28/29/30/31, else None. Not money."""
+    try:
+        seconds = int(window_seconds)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if seconds <= 0 or seconds % DAY_SECONDS:
+        return None
+    days = seconds // DAY_SECONDS
+    if 28 <= days <= 31:
+        return days
+    return None
+
+
+def monthly_cell_count(window_seconds: Optional[int]) -> Optional[int]:
+    days = monthly_days(window_seconds)
+    return None if days is None else days * 3
+
+
+# Official Command Code usage-limits table (2026-09-22, verified against
+# commandcode.ai/docs/resources/usage-limits): weekly cap → monthly credits.
+# GOAT/Pro 的月额度是「用量价值单位」，恰好是周 cap 的两倍（$70/$35、$80/$40），
+# 不是换算错误——别按别的档位的比例去"修正"它们。
+COMMANDCODE_MONTHLY_CAP_BY_WEEKLY = {
+    6: 10,    # Go   —— $1/月，含 $10 额度（5h $3 / 周 $6）
+    35: 70,   # GOAT —— $10/月，含 $70 额度（5h $14 / 周 $35）
+    40: 80,   # Pro  —— $20/月，含 $80 额度（5h $16 / 周 $40）
+    90: 150,  # Max 10×
+    180: 300, # Max 20×
+    24: 40,   # Team Pro
+}
+
+
+def _commandcode_monthly_cap(weekly_cap: Optional[float]) -> Optional[float]:
+    if weekly_cap is None:
+        return None
+    key = int(round(weekly_cap))
+    if abs(weekly_cap - key) > 1e-6:
+        return None
+    cap = COMMANDCODE_MONTHLY_CAP_BY_WEEKLY.get(key)
+    return float(cap) if cap is not None else None
+
+
+def _commandcode_billing_period(secret: str) -> Optional[tuple[int, float]]:
+    """套餐账单周期 → (windowSeconds, resetAt)；拿不到返回 None。
+
+    月额度在**账单周期**开始时刷新（官方口径：monthly credits reset at the start of
+    your next billing period），不是日历月 —— 所以窗口长度只能来自这条订阅记录，
+    绝不按日历月编一个（2026-09-22 Neal 定）。周期不是 28–31 天（年度等）也不算
+    月窗口，返回 None：不是月窗就不该占月区。
+    """
+    try:
+        data = _json_get(COMMANDCODE_SUBSCRIPTION_URL, secret)
+    except Exception:
+        # 订阅端点失败不该连累周窗行：月行不吐即可（宁缺毋假）。
+        return None
+    sub = (data or {}).get("data") if isinstance(data, dict) else None
+    if not isinstance(sub, dict):
+        return None
+    start = _to_epoch(sub.get("currentPeriodStart"))
+    end = _to_epoch(sub.get("currentPeriodEnd"))
+    if start is None or end is None or end <= start:
+        return None
+    window_seconds = int(round(end - start))
+    if monthly_days(window_seconds) is None:
+        return None
+    return window_seconds, end
+
+
+def is_monthly_quota_row(row: MeterRow) -> bool:
+    return row.kind == "quota" and monthly_days(row.windowSeconds) is not None
+
+
+def filter_board_rows(
+    rows: list[MeterRow],
+    monthly_visibility: Optional[dict[str, Any]] = None,
+) -> list[MeterRow]:
+    """Drop monthly quota rows unless that provider's monthly switch is on (default off)."""
+    vis = monthly_visibility if isinstance(monthly_visibility, dict) else {}
+    visible: list[MeterRow] = []
+    for row in rows:
+        if is_monthly_quota_row(row) and vis.get(row.providerId, False) is not True:
+            continue
+        visible.append(row)
+    return visible
 
 
 def _identity_status(identity: dict[str, Any], enabled: bool) -> dict[str, Any]:
@@ -662,16 +768,28 @@ def get_provider_settings() -> ProviderSettingsPayload:
     settings = _read_plugin_settings()
     visibility = settings.get("visibility")
     visibility = visibility if isinstance(visibility, dict) else {}
+    monthly_visibility = settings.get("monthlyVisibility")
+    monthly_visibility = monthly_visibility if isinstance(monthly_visibility, dict) else {}
+    cached = _cache.get("payload")
+    cached_rows = cached.rows if cached is not None else []
     providers = []
     for identity in _identify_all():
         raw = visibility.get(identity["id"], True)
         enabled = raw if isinstance(raw, bool) else True
+        monthly_raw = monthly_visibility.get(identity["id"], False)
+        monthly_enabled = monthly_raw if isinstance(monthly_raw, bool) else False
+        has_monthly = any(
+            is_monthly_quota_row(row) and row.providerId == identity["id"]
+            for row in cached_rows
+        )
         providers.append(
             ProviderSetting(
                 id=identity["id"],
                 label=identity["label"],
                 kind=identity["kind"],
                 enabled=enabled,
+                hasMonthly=has_monthly,
+                monthlyEnabled=monthly_enabled,
                 **_identity_status(identity, enabled),
             )
         )
@@ -982,12 +1100,13 @@ def _fetch_glm(now: float, secret: str = "") -> list[MeterRow]:
 
 
 def _fetch_commandcode(now: float, secret: str = "") -> list[MeterRow]:
-    """Command Code：周窗 + 5h 窗 + 月度积分余额（2026-09-21 实测结构）。
+    """Command Code：周窗 + 5h 窗 + 月度 8h 格子。
 
     ``windowLimits.{weekly,fiveHour}`` = {used, cap, exceeded, resetAt}，resetAt 为
     毫秒 epoch；两个 cap 由套餐决定（Go 6/3、GOAT 35/14、Pro 40/16、Max 90/45…），
     因此 burst 份额按 cap 推导，不写死常量。``credits.monthlyCredits`` 是套餐月度
-    额度余额，单独吐一行 balance——两个窗口之外，它才是真正会见底的口径。
+    额度剩余：总量按官方周 cap→月 cap 对照表认，换算进当月 8 小时格子。
+    另买额度（purchasedCredits）先不进行。
     """
     try:
         data = _json_get(
@@ -1037,18 +1156,32 @@ def _fetch_commandcode(now: float, secret: str = "") -> list[MeterRow]:
                     ),
                 )
             )
-        monthly = _coerce_float((data.get("credits") or {}).get("monthlyCredits"))
-        if monthly is not None:
-            rows.append(
-                _row(
-                    "commandcode:monthly",
-                    "COMMANDCODE",
-                    providerId="commandcode",
-                    kind="balance",
-                    balance=monthly,
-                    currency="USD",
+        monthly_remaining = _coerce_float((data.get("credits") or {}).get("monthlyCredits"))
+        monthly_cap = _commandcode_monthly_cap(weekly_cap)
+        if monthly_remaining is not None and monthly_cap:
+            period = _commandcode_billing_period(secret or _read_env_key("COMMANDCODE_API_KEY"))
+            if period is not None:
+                window_seconds, month_reset = period
+                rows.append(
+                    _row(
+                        "commandcode:monthly",
+                        "COMMANDCODE",
+                        providerId="commandcode",
+                        kind="quota",
+                        windowLabel="Monthly",
+                        windowSeconds=window_seconds,
+                        role="cycle",
+                        # 分子（服务端 remaining）与分母（官方表推的 cap）是两个来源：官方调价、
+                        # 加量包、档位错配都会让 remaining > cap，于是算出负数或 >100 的百分比。
+                        # 这一格最后要变成「还剩多少」的文案（100 − usedPercent），印出
+                        # 「-20% left」「120% left」都是假数字 → 归一到 0–100。
+                        usedPercent=min(
+                            100.0,
+                            max(0.0, (monthly_cap - monthly_remaining) / monthly_cap * 100),
+                        ),
+                        resetAt=month_reset,
+                    )
                 )
-            )
         return rows
     except Exception as exc:
         return [_row("commandcode", "COMMANDCODE", error=exc, providerId="commandcode")]
@@ -1925,6 +2058,18 @@ def build_payload() -> MeterPayload:
     return payload
 
 
+def build_visible_payload() -> MeterPayload:
+    """Cached fetch, then drop monthly quota rows the user has not switched on."""
+    payload = build_payload()
+    settings = _read_plugin_settings()
+    monthly_visibility = settings.get("monthlyVisibility")
+    monthly_visibility = monthly_visibility if isinstance(monthly_visibility, dict) else {}
+    return MeterPayload(
+        rows=filter_board_rows(payload.rows, monthly_visibility),
+        generatedAt=payload.generatedAt,
+    )
+
+
 @router.get("/settings")
 async def provider_settings() -> dict:
     payload = get_provider_settings()
@@ -1936,12 +2081,21 @@ async def update_provider_settings(
     provider_id: str,
     update: ProviderVisibilityUpdate,
 ) -> dict:
+    if update.enabled is None and update.monthlyEnabled is None:
+        raise HTTPException(status_code=422, detail="enabled or monthlyEnabled is required")
     try:
-        await run_in_threadpool(
-            set_provider_visibility,
-            provider_id,
-            update.enabled,
-        )
+        if update.enabled is not None:
+            await run_in_threadpool(
+                set_provider_visibility,
+                provider_id,
+                update.enabled,
+            )
+        if update.monthlyEnabled is not None:
+            await run_in_threadpool(
+                set_monthly_visibility,
+                provider_id,
+                update.monthlyEnabled,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     payload = get_provider_settings()
@@ -1953,7 +2107,7 @@ async def data(refresh: bool = False) -> dict:
     if refresh:
         _cache.update(at=0.0, payload=None, identity_overrides={})
     try:
-        payload = await run_in_threadpool(build_payload)
+        payload = await run_in_threadpool(build_visible_payload)
         return json.loads(payload.model_dump_json())
     except Exception as exc:
         raise HTTPException(status_code=500, detail="Subscription data unavailable") from exc

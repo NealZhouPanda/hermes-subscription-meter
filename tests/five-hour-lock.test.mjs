@@ -13,7 +13,7 @@ const pluginSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf
 // 提取排序相关函数（同 peak-capsule.test.mjs 的提取方式）
 // ---------------------------------------------------------------------------
 function loadSortFns() {
-  const names = ['orderRowsForDisplay', 'rowPriority', 'activePeakRule', 'localClockAt', 'peakRuleHit', 'collapseDuplicateQuotaRows', 'quotaCycleMs', 'clamp']
+  const names = ['orderRowsForDisplay', 'rowPriority', 'activePeakRule', 'localClockAt', 'peakRuleHit', 'collapseDuplicateQuotaRows', 'quotaCycleMs', 'clamp', 'toEpochMillis']
   const snippets = names.map(name => {
     const match = pluginSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}`))
     assert.ok(match, `function ${name} must exist in plugin.js`)
@@ -94,7 +94,7 @@ test('排序：5h 新窗 P=0 也不拖累自家周行（GLM 2026-09-10 实况回
 // 锁定段格数：lockedRemainingCellCount（% → 84 格末尾格数）
 // ---------------------------------------------------------------------------
 function loadLockedFns() {
-  const fnNames = ['lockedRemainingCellCount', 'burstShareOf', 'normalizeBurstShare', 'numericOrNull', 'quotaCellCount', 'clamp']
+  const fnNames = ['lockedRemainingCellCount', 'burstShareOf', 'normalizeBurstShare', 'numericOrNull', 'quotaCellCount', 'clamp', 'isMonthlyWindow', 'meterCellCount']
   const snippets = fnNames.map(name => {
     const match = pluginSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}`))
     assert.ok(match, `function ${name} must exist in plugin.js`)

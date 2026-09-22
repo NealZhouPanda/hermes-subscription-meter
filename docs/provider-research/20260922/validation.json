@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "validated_at": "2026-09-22",
+  "method": "stdlib assertions: required fields, 12 unique provider ids, single URL per source entry (regex), source-link back-trace to batch-a/b originals, URL/JSON parse check, over-assertion residue scan",
+  "providers_expected": 12,
+  "providers_found": 12,
+  "provider_ids": [
+    "openai",
+    "anthropic",
+    "google",
+    "xai",
+    "deepseek",
+    "volcengine-ark",
+    "aliyun-bailian",
+    "zhipu-glm",
+    "moonshot-kimi",
+    "minimax",
+    "tencent-hunyuan",
+    "baidu-qianfan"
+  ],
+  "total_products": 24,
+  "total_source_urls": 42,
+  "evidence_rows": 46,
+  "single_url_per_source_entry": true,
+  "url_parse_check": true,
+  "json_parse_check": true,
+  "overassertion_residue_scan": "clean",
+  "errors": [],
+  "status": "pass",
+  "broken_source_links": []
+}

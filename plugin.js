@@ -21,6 +21,29 @@ const REFRESH_MS = 5 * 60 * 1000
 // host.state.profile（= $activeGatewayProfile，正是决定 ctx.rest 路由到哪个后端的那颗
 // 原子）——组件里 useValue 订阅、一变就重取，不轮询、也不读 App 内部键。
 const CELL_COUNT = 84
+const MONTHLY_CELL_SECONDS = 8 * 3600
+
+function isMonthlyWindow(row) {
+  const windowSeconds = Number(row?.windowSeconds)
+  if (!Number.isFinite(windowSeconds) || windowSeconds <= 0 || windowSeconds % 86400 !== 0) return false
+  const days = windowSeconds / 86400
+  return days >= 28 && days <= 31
+}
+
+function meterCellCount(row) {
+  if (isMonthlyWindow(row)) return (Number(row.windowSeconds) / 86400) * 3
+  return CELL_COUNT
+}
+
+function splitBoardRows(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  const quota = list.filter(row => row.kind === 'quota')
+  return {
+    weekly: quota.filter(row => row.role !== 'burst' && !isMonthlyWindow(row)),
+    monthly: quota.filter(row => row.role !== 'burst' && isMonthlyWindow(row)),
+    balance: list.filter(row => row.kind !== 'quota')
+  }
+}
 
 // 响应归属校验：请求发出时的 profile 与回来时不一致 → 这份数据属于上一个 profile，
 // 必须丢弃（否则旧 profile 的数字会画在新 profile 的界面上）。
@@ -37,10 +60,11 @@ const DAY_GAP = '0.35rem'
 const dayGapColumns = dayCellInterval =>
   Array.from({ length: CELL_COUNT - 1 }, (_, i) => ((i + 1) % dayCellInterval === 0 ? DAY_GAP : null))
     .filter(Boolean)
-const gridTemplateColumns = subscription => {
-  const dayCellInterval = dayCellIntervalOf(subscription)
+function gridTemplateColumns(subscription) {
+  const cellCount = meterCellCount(subscription)
+  const dayCellInterval = isMonthlyWindow(subscription) ? null : dayCellIntervalOf(subscription)
   if (!dayCellInterval) {
-    return Array.from({ length: CELL_COUNT }, () => `minmax(0px, ${CELL_SIZE})`).join(' ')
+    return Array.from({ length: cellCount }, () => `minmax(0px, ${CELL_SIZE})`).join(' ')
   }
   const totalColumns = CELL_COUNT + dayGapColumns(dayCellInterval).length
   return Array.from({ length: totalColumns }, (_, columnIndex) =>
@@ -50,12 +74,19 @@ const gridTemplateColumns = subscription => {
   ).join(' ')
 }
 // Compact fixed metadata columns keep all 84-cell matrices vertically aligned.
-// Meta track fits "Reset 6d 23h 59m" + "+19.1 cells" (~140px); quota track fits "100% left".
-const QUOTA_GRID_COLUMNS = '6.5rem 3.75rem 9.5rem minmax(6rem, 1fr)'
+// 9.5rem 装不下最坏组合：2026-09-22 用 headless 探针按 app 默认字模实测
+// （~/.hermes/cache/scratch/sm-reset-width/measure.mjs），"Reset 5d 15h 45m"
+// 89.2px + 6px gap + "+19.1 cells" 59.3px = 154.6px > 152px，于是倒计时被截成
+// "Reset 5d 15h 4…"；上一个已经挂零余量（"Reset 29d 0h 0m" + "−30.0 cells" = 148.2px）。
+// 10.5rem = 168px 覆盖最坏组合 159.95px（长倒计时 + 三位数余数）并留 ~8px。
+// 改这里要同步 NARROW_ROW_BREAKPOINT_PX 与 tests/reset-column-fit.test.mjs。
+const QUOTA_GRID_COLUMNS = '6.5rem 3.75rem 10.5rem minmax(6rem, 1fr)'
 // Below this row width the single-line tracks can no longer fit their text;
 // rows switch to two lines (text line + full-width matrix) instead of truncating.
+// = wide tracks (6.5 + 3.75 + 10.5) + matrix min 6rem + 3 gaps (0.5rem each)
+//   + row padding (px-1.5 × 2) = 29rem = 464px。
 const QUOTA_GRID_COLUMNS_NARROW = '5.25rem 3.75rem minmax(0, 1fr)'
-const NARROW_ROW_BREAKPOINT_PX = 28 * 16
+const NARROW_ROW_BREAKPOINT_PX = 29 * 16
 
 function quotaRowLayout(containerWidth) {
   return containerWidth > 0 && containerWidth < NARROW_ROW_BREAKPOINT_PX ? 'narrow' : 'wide'
@@ -105,12 +136,15 @@ function quotaCycleMs(subscription) {
 // 「每格 2 小时」只是 windowSeconds=604800 的特例；缺 windowSeconds → null。
 function cellDurationSeconds(subscription) {
   const windowSeconds = Number(subscription?.windowSeconds)
-  return Number.isFinite(windowSeconds) && windowSeconds > 0 ? windowSeconds / CELL_COUNT : null
+  if (!Number.isFinite(windowSeconds) || windowSeconds <= 0) return null
+  if (isMonthlyWindow(subscription)) return MONTHLY_CELL_SECONDS
+  return windowSeconds / CELL_COUNT
 }
 
 // 日线间隔（定稿：「日线：仅 windowSeconds%86400===0 时每 86400/格时值 格一条」）。
 // 窗口不是整日倍数或缺 windowSeconds → null：不画日虚线、也不画日间隙列。
 function dayCellIntervalOf(subscription) {
+  if (isMonthlyWindow(subscription)) return null
   const windowSeconds = Number(subscription?.windowSeconds)
   if (!Number.isFinite(windowSeconds) || windowSeconds <= 0 || windowSeconds % 86400 !== 0) return null
   return Math.round(86400 / (windowSeconds / CELL_COUNT))
@@ -143,7 +177,7 @@ function lockedRemainingCellCount(row, sibling) {
   const shortRemaining = 100 - (clamp(Number(sibling.usedPercent) || 0, 0, 100))
   const solidRemaining = Math.min(weeklyRemaining, shortRemaining * ratio)
   const lockedPercent = Math.max(0, weeklyRemaining - solidRemaining)
-  return (lockedPercent / 100) * CELL_COUNT
+  return (lockedPercent / 100) * meterCellCount(row)
 }
 
 // 单格配色（2026-09-12 Neal 定五色契约）：locked 由 WeeklyMeter 用
@@ -152,13 +186,18 @@ function lockedRemainingCellCount(row, sibling) {
 //   已流逝+已消耗=track；已流逝+未消耗=富余（天蓝/深蓝）；
 //   未流逝+已消耗=超额（橙，不分锁定）；未流逝+未消耗=剩余（翠绿/深绿）。
 function weeklyCell(now, subscription, index, locked = false) {
+  const cellCount = meterCellCount(subscription)
   const usedPercent = clamp(Number(subscription.usedPercent) || 0, 0, 100)
-  const resetAt = Number(subscription.resetAt)
+  // 时间轴判据只有 toEpochMillis 一处：resetAt 缺失 / 0 / 负数 / 非数 → null（= 没有
+  // 重置时刻）。直接 Number(resetAt) 会把 null 当成 0（1970-01-01），整条矩阵被画成
+  // 「时间早已过完」——Command Code 周条 84 格全蓝就是这么来的（2026-09-22）。
+  const resetAt = toEpochMillis(subscription.resetAt)
   const cycleMs = quotaCycleMs(subscription)
-  const elapsedCells = Number.isFinite(resetAt)
-    ? clamp(((now - (resetAt - cycleMs)) / cycleMs) * CELL_COUNT, 0, CELL_COUNT)
-    : 0
-  const quotaGone = index < quotaCellCount(usedPercent)
+  // 没有可用的时间轴（无 resetAt 或无窗长）→ 不画流逝：格子全部按「未流逝」着色。
+  const elapsedCells = resetAt === null || cycleMs === null
+    ? 0
+    : clamp(((now - (resetAt - cycleMs)) / cycleMs) * cellCount, 0, cellCount)
+  const quotaGone = index < quotaCellCount(usedPercent, cellCount)
   const elapsed = elapsedCells - index
 
   let fillRatio = 1
@@ -171,8 +210,8 @@ function weeklyCell(now, subscription, index, locked = false) {
   return { fillRatio, goneColor, presentColor }
 }
 
-function quotaCellCount(usedPercent) {
-  return (clamp(Number(usedPercent) || 0, 0, 100) / 100) * CELL_COUNT
+function quotaCellCount(usedPercent, cellCount = CELL_COUNT) {
+  return (clamp(Number(usedPercent) || 0, 0, 100) / 100) * cellCount
 }
 
 function isDayDivider(index, dayCellInterval) {
@@ -229,8 +268,8 @@ function activePeakRule(row, now) {
 // DEEPSEEK 无订阅全是 API（balance 行），不参与 quota 排序，天然不受影响。
 function rowPriority(row, now) {
   const usedPercent = clamp(Number(row.usedPercent) || 0, 0, 100)
-  const resetAt = Number(row.resetAt)
-  if (!Number.isFinite(resetAt) || resetAt <= now) return -Infinity
+  const resetAt = toEpochMillis(row.resetAt)
+  if (resetAt === null || resetAt <= now) return -Infinity
   const cycleMs = quotaCycleMs(row)
   const elapsed = clamp((now - (resetAt - cycleMs)) / cycleMs, 0, 1)
   const remainingFraction = 1 - elapsed
@@ -244,14 +283,12 @@ function rowPriority(row, now) {
 function orderRowsForDisplay(rows, now) {
   // 单键优先度排序（2026-09-09 Neal 定「蓝绿比」）：P 见 rowPriority（盈余÷未流逝）。
   // 高峰减半保留；同分（分数完全相等，如两行都用满 −1）按重置近在前兜底；余额/错误行恒在队尾。
-  // 无/非法 resetAt → Infinity 沉底；Number(null)=0 是有限数，必须先挡掉。
+  // 无/非法 resetAt → Infinity 沉底；判据统一走 toEpochMillis（null/0/负数/非数 → null），
+  // 不再各处自写 Number() 守卫——Number(null)=0 是有限数，漏挡一次就沉不了底。
   // 短窗附属化（2026-09-10 Neal 定）：5h 行不参与排序——5h 是撞墙预警显示器
   // （起因=GLM 富余多跑长任务却在 5h 撞墙中断），不是独立供给池，周行排序
   // 不再取 min(周P, 5hP)；渲染仍用 findFiveHourSibling 算锁定段。
-  const eta = row => {
-    const value = Number(row.resetAt)
-    return Number.isFinite(value) && value > 0 ? value : Infinity
-  }
+  const eta = row => toEpochMillis(row.resetAt) ?? Infinity
   const quotaRowsAll = collapseDuplicateQuotaRows(rows.filter(row => row.kind === 'quota'))
   const quota = quotaRowsAll
     .sort((a, b) => (rowPriority(b, now) - rowPriority(a, now)) || (eta(a) - eta(b)))
@@ -292,7 +329,7 @@ function quotaDisplayName(subscription) {
 
 function compactWindowLabel(windowLabel) {
   const text = String(windowLabel || '').trim().toLowerCase()
-  if (!text || text === 'weekly' || text.includes('supergrok')) return ''
+  if (!text || text === 'weekly' || text === 'monthly' || text.includes('supergrok')) return ''
   // M5（定稿「标签禁止啃英文窗词」）：逐词处理，不再substring啃词——
   //   · 窗型词（session/build/api）整词剔除；
   //   · 数字与单位词（5h / 10d / 4w / 5 hours / 10 days）换算成大写缩写；
@@ -324,24 +361,37 @@ function compactWindowLabel(windowLabel) {
 
 function formatRemaining(resetAt, now) {
   const remainMs = Math.max(0, Number(resetAt) - now)
-  const days = Math.floor(remainMs / (24 * 60 * 60 * 1000))
-  const hours = Math.floor((remainMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
-  const minutes = Math.floor((remainMs % (60 * 60 * 1000)) / (60 * 1000))
-  return `${days}d ${hours}h ${minutes}m`
+  const parts = [
+    `${Math.floor(remainMs / (24 * 60 * 60 * 1000))}d`,
+    `${Math.floor((remainMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))}h`,
+    `${Math.floor((remainMs % (60 * 60 * 1000)) / (60 * 1000))}m`
+  ]
+  // 最左侧是 0：连着的 0 都去掉（0d 0h 59m → 59m）。
+  // 最左侧不是 0：中间的 0 留着（3d 0h 12m 不动）。全是 0 时留 0m。
+  while (parts.length > 1 && parts[0].startsWith('0')) parts.shift()
+  return parts.join(' ')
+}
+
+// Reset 倒计时的取时来源（2026-09-22 下午 Neal 定，当晚被一次运行态安装盖掉、本次恢复）：
+// 有 5 小时短窗就倒计时到短窗的实际重置点，没有五小时限制才倒计时到主窗（周/月）。
+// 短窗在但没有实际重置时刻 → null（显示 —），不拿周重置冒充。判据与画格子同一处
+// （toEpochMillis）：缺失/0/非法都算「没有」。
+function resetCountdownAt(subscription, fiveHourSibling) {
+  return toEpochMillis((fiveHourSibling || subscription)?.resetAt)
 }
 
 // 盈余/亏损时间块：均摊口径 = (已过比例 − 已用比例) × 84 格。
 // 正=省余、负=超支；块长=格时值（M5 起从行上 windowSeconds 推导，不再恒为 2h）。
 function surplusBlocks(subscription, now) {
   const usedPercent = clamp(Number(subscription.usedPercent) || 0, 0, 100)
-  const resetAt = Number(subscription.resetAt)
-  if (!Number.isFinite(resetAt) || resetAt <= now) return null
+  const resetAt = toEpochMillis(subscription.resetAt)
+  if (resetAt === null || resetAt <= now) return null
   const cycleMs = quotaCycleMs(subscription)
   // M5：无窗长就没有均摊基准（7 天默认已删）——宁可不显示盈亏，
   // 也不能拿错误分母算一个假数字。
   if (cycleMs === null) return null
   const elapsedPercent = clamp(((now - (resetAt - cycleMs)) / cycleMs) * 100, 0, 100)
-  return (elapsedPercent - usedPercent) / 100 * CELL_COUNT
+  return (elapsedPercent - usedPercent) / 100 * meterCellCount(subscription)
 }
 
 function formatSurplus(blocks) {
@@ -363,6 +413,12 @@ function formatMoney(value, currency) {
 // amount-based dynamic coloring anymore.
 const NEUTRAL_VALUE_COLOR = 'var(--ui-text-quaternary)'
 
+// 「这个值能不能当重置时刻用」的唯一判据：有效→毫秒 epoch，无效→null。
+// 无效 = null / undefined / 0 / 负数 / 非数（后端省字段、占位 0、provider 换 API 都会遇到）。
+// 凡需要 resetAt 的地方（weeklyCell / rowPriority / eta / surplusBlocks）一律走这里，
+// 不各自写 Number() 守卫——Number(null)===0 会把「没有重置时刻」变成 1970-01-01：
+// 排序里会误判成「即将重置」，格子里会把整条矩阵画成「时间早已过完」
+// （Command Code 周条 84 格全蓝，2026-09-22）。
 function toEpochMillis(value) {
   const numeric = Number(value)
   if (!Number.isFinite(numeric) || numeric <= 0) return null
@@ -535,28 +591,26 @@ function BalanceSpendRow({ subscription, now }) {
 }
 
 function WeeklyMeter({ subscription, now, fiveHourSibling }) {
-  // M5：格时值从行上 windowSeconds 推导（定稿「格时值=ws/N」），7 天特例文案删除；
-  // 缺 windowSeconds 时只说 period / 84，不再宣称任何具体小时数。
-  const dayCellInterval = dayCellIntervalOf(subscription)
+  const cellCount = meterCellCount(subscription)
+  const packed = isMonthlyWindow(subscription)
+  const dayCellInterval = packed ? null : dayCellIntervalOf(subscription)
   const cellSeconds = cellDurationSeconds(subscription)
   const cellPhrase = cellSeconds === null
-    ? 'each cell = period / 84'
-    : `each cell = period / 84 (${formatCellDurationLabel(cellSeconds)} per cell)`
-  const matrixTitle = `84-cell matrix: ${quotaDisplayName(subscription)}, ${Math.round(100 - subscription.usedPercent)}% remaining, ${cellPhrase}`
-  // 锁定段渲染：锁定格与普通格同一套实色渲染（goneColor 底 + fill 子元素）。
-  // 2026-09-12 Neal 定五色契约：锁定格颜色走 weeklyCell 的受限档（深绿/深蓝），
-  // 判定只在此算一次（格数唯一来源 lockedRemainingCellCount），以布尔传给
-  // weeklyCell 选色，不复制第二套格数算法。
-  const lockedCells = lockedRemainingCellCount(subscription, fiveHourSibling)
-  const quotaGoneBoundary = quotaCellCount(subscription.usedPercent)
-  const lockedStart = CELL_COUNT - lockedCells
+    ? `each cell = period / ${cellCount}`
+    : packed
+      ? 'each cell = 8 hours'
+      : `each cell = period / ${cellCount} (${formatCellDurationLabel(cellSeconds)} per cell)`
+  const matrixTitle = `${cellCount}-cell matrix: ${quotaDisplayName(subscription)}, ${Math.round(100 - subscription.usedPercent)}% remaining, ${cellPhrase}`
+  const lockedCells = packed ? 0 : lockedRemainingCellCount(subscription, fiveHourSibling)
+  const quotaGoneBoundary = quotaCellCount(subscription.usedPercent, cellCount)
+  const lockedStart = cellCount - lockedCells
   const isLockedIndex = index => index >= quotaGoneBoundary && index >= lockedStart
   const cells = useMemo(
     () =>
-      Array.from({ length: CELL_COUNT }, (_, index) =>
+      Array.from({ length: cellCount }, (_, index) =>
         weeklyCell(now, subscription, index, isLockedIndex(index))),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [now, subscription, fiveHourSibling, quotaGoneBoundary, lockedStart]
+    [now, subscription, fiveHourSibling, quotaGoneBoundary, lockedStart, cellCount]
   )
   const gridChildren = []
   cells.forEach((cell, index) => {
@@ -587,7 +641,7 @@ function WeeklyMeter({ subscription, now, fiveHourSibling }) {
       children: fill
     }))
 
-    if (dayCellInterval && index < CELL_COUNT - 1 && isDayDivider(index + 1, dayCellInterval)) {
+    if (dayCellInterval && index < cellCount - 1 && isDayDivider(index + 1, dayCellInterval)) {
       gridChildren.push(jsx('span', {
         key: `day-gap-${index + 1}`,
         'data-day-gap': true,
@@ -621,9 +675,16 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
   // 配色来自行（后端抄进行）；行上没给就用中性绿。
   const accent = failed ? COLORS.danger : (subscription.accent || COLORS.green)
   const quotaText = failed ? 'ERR' : (unknown ? 'Unknown —' : `${Math.round(100 - subscription.usedPercent)}% left`)
+  // 5h 兄弟行（2026-09-09 起）：从全部 quota 行池里找同 providerId 的短窗行。
+  // 两个用途——Reset 倒计时的取时来源（resetCountdownAt）与 WeeklyMeter 的锁定段。
+  // 找不到 / 月行 → null：倒计时退回本行（周/月），锁定段不画。
+  const fiveHourSibling = (!isMonthlyWindow(subscription) && quotaPool)
+    ? findFiveHourSibling(subscription, quotaPool)
+    : null
+  const countdownAt = resetCountdownAt(subscription, fiveHourSibling)
   const clockText = failed
     ? String(subscription.error || 'data unavailable').slice(0, 60)
-    : `Reset ${subscription.resetAt ? formatRemaining(subscription.resetAt, now) : '—'}`
+    : `Reset ${countdownAt ? formatRemaining(countdownAt, now) : '—'}`
   const blocks = failed || unknown ? null : surplusBlocks(subscription, now)
   const surplusText = blocks === null ? null : formatSurplus(blocks)
   const surplusTone = surplusText ? (blocks >= 0 ? COLORS.green : COLORS.danger) : null
@@ -667,14 +728,21 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
     className: 'flex min-w-0 items-baseline gap-1.5 tabular-nums',
     children: [
       jsx('span', {
-        className: 'min-w-0 truncate',
+        // Reset 是这列的主信息：正常行永不收缩，列装不下时先牺牲后面的余数后缀
+        // （2026-09-22 Neal：有的 Reset 显示不全）。失败行的 error 摘要是长文本，
+        // 仍用省略号收住（全文在行的 title 里）。列宽预算见 QUOTA_GRID_COLUMNS。
+        className: failed ? 'min-w-0 truncate' : 'shrink-0',
         style: { fontSize: '0.625rem', color: 'var(--ui-text-tertiary)' },
-        title: failed ? undefined : 'Time remaining until the next cycle starts',
+        title: failed ? undefined : (fiveHourSibling
+          ? 'Time remaining until the 5-hour window resets'
+          : isMonthlyWindow(subscription)
+            ? 'Time remaining until the monthly window resets'
+            : 'Time remaining until the weekly cycle resets'),
         children: clockText
       }),
       surplusText
         ? jsx('span', {
-            className: 'shrink-0 font-mono text-[0.56rem]',
+            className: 'min-w-0 truncate font-mono text-[0.56rem]',
             style: { color: surplusTone },
             title: surplusTitle,
             'aria-label': surplusTitle,
@@ -683,11 +751,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
         : null
     ]
   })
-  // 5h 兄弟行（2026-09-09）：从全部 quota 行池里找同 providerId 的短窗行，
-  // 传给 WeeklyMeter 算锁定段；找不到则 null → 不渲染锁定段（现状）。
-  const fiveHourSibling = quotaPool
-    ? findFiveHourSibling(subscription, quotaPool)
-    : null
+  // 5h 兄弟行已在函数开头算好（resetCountdownAt 与 WeeklyMeter 共用同一个）。
   // M5（定稿 §1「windowSeconds … 缺→不画轴」）：无窗行不画矩阵，只留文字；
   // 行内缺口文案（gap 通道）口径待 Neal 认可，本轮不加。
   const meterCell = failed || !subscription.windowSeconds ? null : (unknown ? null : jsx(WeeklyMeter, { subscription, now, fiveHourSibling }))
@@ -767,6 +831,30 @@ function ProviderSettingsPanel({ rest }) {
       window.dispatchEvent(new Event('subscription-meter:settings-changed'))
     } catch {
       // Fixed safe message only: the raw exception may embed secrets/URLs.
+      setState('error')
+      host.notify({
+        kind: 'error',
+        message: `Failed to save display settings for ${providerId}. [redacted]`
+      })
+    } finally {
+      savePending.current = false
+      setSavingId(null)
+    }
+  }
+
+  const toggleMonthly = async (providerId, monthlyEnabled) => {
+    if (savePending.current) return
+    savePending.current = true
+    setSavingId(`${providerId}:monthly`)
+    try {
+      const payload = await rest(`/settings/${encodeURIComponent(providerId)}`, {
+        method: 'PUT',
+        body: { monthlyEnabled }
+      })
+      setProviders(Array.isArray(payload?.providers) ? payload.providers : [])
+      setState('ready')
+      window.dispatchEvent(new Event('subscription-meter:settings-changed'))
+    } catch {
       setState('error')
       host.notify({
         kind: 'error',
@@ -865,11 +953,33 @@ function ProviderSettingsPanel({ rest }) {
                   })
                 ]
               }),
-              jsx(Switch, {
-                checked: provider.enabled !== false,
-                disabled: state === 'loading' || savingId !== null || refreshing,
-                'aria-label': `Show ${provider.label} in the subscription quota window`,
-                onCheckedChange: checked => void toggle(provider.id, checked)
+              jsxs('span', {
+                className: 'flex shrink-0 flex-col items-end gap-1',
+                children: [
+                  jsx(Switch, {
+                    checked: provider.enabled !== false,
+                    disabled: state === 'loading' || savingId !== null || refreshing,
+                    'aria-label': `Show ${provider.label} in the subscription quota window`,
+                    onCheckedChange: checked => void toggle(provider.id, checked)
+                  }),
+                  provider.hasMonthly
+                    ? jsxs('label', {
+                        className: 'flex items-center gap-1',
+                        children: [
+                          jsx('span', {
+                            className: 'text-[0.6rem] text-(--ui-text-tertiary)',
+                            children: 'Show monthly quota'
+                          }),
+                          jsx(Switch, {
+                            checked: provider.monthlyEnabled === true,
+                            disabled: state === 'loading' || savingId !== null || refreshing,
+                            'aria-label': `Show monthly quota for ${provider.label}`,
+                            onCheckedChange: checked => void toggleMonthly(provider.id, checked)
+                          })
+                        ]
+                      })
+                    : null
+                ]
               })
             ]
           }, provider.id)
@@ -1126,15 +1236,27 @@ function SubscriptionMeterBody({ rest }) {
   }
 
   const displayRows = orderRowsForDisplay(rows, now)
-  // 全量 quota 行池：含短窗行，供主窗行算锁定段（排序自 09-10 起不再取 min）。
   const quotaPool = displayRows.filter(r => r.kind === 'quota')
-  // 短窗行不单独成行显示（2026-09-09 Neal 定）：只作主窗行的计算依据，不渲染。
-  // 判定只认 role='burst'。
-  const quotaRows = quotaPool.filter(r => r.role !== 'burst')
-  const balanceRows = displayRows.filter(r => r.kind !== 'quota')
+  const zones = splitBoardRows(displayRows)
+  const balanceRows = zones.balance
   const staleBanner = loadState === 'stale'
     ? `Refresh failed · data as of ${new Date(lastSuccessAt || 0).toLocaleTimeString()} (showing the last successful data)`
     : null
+  const quotaRowNodes = (list, prefix) => list.map((subscription, index) =>
+    jsx(WeeklyQuotaRow, {
+      key: `${prefix}-${subscription.id || index}`,
+      subscription,
+      now,
+      quotaPool
+    })
+  )
+  const zoneDivider = key => jsx('div', {
+    key,
+    'data-zone-divider': true,
+    'aria-hidden': true,
+    className: 'shrink-0 border-t border-(--ui-stroke-secondary)',
+    style: { marginTop: 2, marginBottom: 2 }
+  })
 
   return jsxs('div', {
     className: 'flex h-full min-w-0 flex-col gap-y-1 overflow-y-auto border-t border-(--ui-stroke-secondary) px-2 py-1',
@@ -1147,17 +1269,23 @@ function SubscriptionMeterBody({ rest }) {
             children: staleBanner
           })
         : null,
-      ...quotaRows.map((subscription, index) =>
-        jsx(WeeklyQuotaRow, {
-          key: `subscription-${subscription.id || index}`,
-          subscription,
-          now,
-          quotaPool
-        })
-      ),
+      zones.weekly.length
+        ? jsxs('div', {
+            'data-zone': 'weekly',
+            children: quotaRowNodes(zones.weekly, 'weekly')
+          })
+        : null,
+      zones.weekly.length && zones.monthly.length ? zoneDivider('div-weekly-monthly') : null,
+      zones.monthly.length
+        ? jsxs('div', {
+            'data-zone': 'monthly',
+            children: quotaRowNodes(zones.monthly, 'monthly')
+          })
+        : null,
       balanceRows.length > 0
         ? jsx('div', {
             ref: balanceLaneRef,
+            'data-zone': 'balance',
             // 与额度矩阵区之间一条淡分割线（2026-09-10 Neal 定的高级 SaaS 卡片化分隔）。
             // 布局（2026-09-10 Neal 定）：等宽 grid 改内容紧凑 flex——条目文字长短不一，
             // 等宽列里分隔线无法视觉居中；flex 下分隔线靠两侧等距 margin 真正居中。

@@ -18,3 +18,7 @@ node_modules/
 # Screenshots with real personal data must never be committed
 docs/images/*.png
 !docs/images/.gitkeep
+
+# Provider research: the directory is the source of truth, the zip is a local
+# archive twin of it — committing both would let the two copies drift
+docs/provider-research/*.zip

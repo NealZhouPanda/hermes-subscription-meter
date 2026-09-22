@@ -24,7 +24,8 @@ function constant(name, { multiline = false } = {}) {
 const PURE_HELPERS = [
   'clamp', 'numericOrNull', 'normalizeBurstShare', 'normalizePeakHours', 'burstShareOf',
   'lockedRemainingCellCount', 'quotaCellCount', 'findFiveHourSibling',
-  'localClockAt', 'peakRuleHit', 'activePeakRule', 'normalizeRow', 'toEpochMillis', 'sanitizeRowError'
+  'localClockAt', 'peakRuleHit', 'activePeakRule', 'normalizeRow', 'toEpochMillis', 'sanitizeRowError',
+  'isMonthlyWindow', 'meterCellCount'
 ]
 
 const sandbox = new Function(

@@ -1,6 +1,6 @@
 # hermes-subscription-meter
 
-A subscription-quota dashboard plugin for [Hermes Agent](https://hermes-agent.nousresearch.com). This is not a progress bar: weekly quota is measured in time and split into **84 cells** (7 days × 12 cells a day), so how much you have used and how much is left is obvious at a glance, and the color shift tells you the current quota status. When choosing is hard, the plugin automatically ranks **the model it suggests you use first for the problem at hand** at the top.
+A subscription-quota dashboard plugin for [Hermes Agent](https://hermes-agent.nousresearch.com). This is not a progress bar: quota is measured in time and drawn as a cell matrix, so how much you have used and how much is left is obvious at a glance, and the color shift tells you the current quota status. The board reads in three zones: the **weekly zone** (84 cells, 7 days × 12 a day, with the 5-hour window overlaid on it), a divider, the **monthly zone** for plans that also cap a month (8-hour cells, 3 a day — a 30-day month is 90 cells), a divider, and the **balance zone** for prepaid accounts. When choosing is hard, the plugin automatically ranks **the model it suggests you use first for the problem at hand** at the top.
 
 **Provider visibility is controlled from the UI** — show or hide each provider yourself, no config-file edits.
 
@@ -33,7 +33,7 @@ The discovery layer collects candidate credentials from the Hermes provider regi
 | Codex (ChatGPT) | Hermes `account_usage`, fallback to chatgpt.com usage endpoint |
 | GLM (Zhipu) | open.bigmodel.cn quota endpoint |
 | Kimi (Moonshot) | api.kimi.com coding usage endpoint |
-| Command Code | api.commandcode.ai `/alpha/billing/credits` (API key; 5h + weekly windows and monthly credit balance) |
+| Command Code | api.commandcode.ai `/alpha/billing/credits` (5h + weekly windows) + `/alpha/billing/subscriptions` (monthly quota, reset on the billing period) |
 | DeepSeek | api.deepseek.com balance + platform cost |
 | xAI (Grok subscription) | Hermes `account_usage` (xai-oauth), fallback to CLI proxy billing |
 | MiniMax | CN plan usage endpoint |
@@ -44,9 +44,9 @@ Anything detected but lacking a fetcher is shown as `no_fetcher` rather than sil
 
 ## How it works
 
-- `plugin.js` — the desktop panel: the 84-cell matrix, balance bars, automatic ranking of the model it suggests you use first, and the per-provider visibility toggles (persisted per profile in plugin settings).
+- `plugin.js` — the desktop panel: the weekly matrix (84 cells) with the 5-hour lock overlay, the monthly zone (8-hour cells, sized to the length of the current month), balance bars, automatic ranking of the model it suggests you use first, and the per-provider visibility toggles — plus a monthly-quota toggle that only appears for providers that actually expose a monthly window (persisted per profile in plugin settings).
 - `dashboard/plugin_api.py` — a FastAPI router that turns credentials into provider-neutral quota rows. Secrets stay in memory only; they never appear in API responses, logs or error strings.
-- `tests/` — 84 frontend tests (node:test) + 116 backend tests (pytest).
+- `tests/` — 109 frontend tests (node:test) + 128 backend tests (pytest).
 
 ## Development
 
