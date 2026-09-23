@@ -9,4 +9,4 @@ config_schema:
     description: Per-provider display switch (provider id -> whether the row shows in the quota dashboard).
   monthlyVisibility:
     type: dict
-    description: Per-provider monthly quota switch (default off). Only used when a calendar-month window exists.
+    description: Per-provider monthly quota switch (default on when a monthly window is detected; explicit false hides it).

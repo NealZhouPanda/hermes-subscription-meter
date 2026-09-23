@@ -1,7 +1,7 @@
 """Monthly quota is a calendar-month usage window, not money.
 
-28/29/30/31-day windows → 3 cells/day (8 hours each). The board hides
-those rows unless monthlyVisibility[providerId] is True (default off).
+28/29/30/31-day windows → 3 cells/day (8 hours each). Those rows are shown
+by default when detected; monthlyVisibility[providerId] = False opts out.
 """
 
 from fastapi import FastAPI
@@ -49,7 +49,7 @@ def test_monthly_cell_count_is_three_per_day():
     assert plugin_api.monthly_cell_count(WEEK) is None
 
 
-def test_board_hides_monthly_rows_by_default():
+def test_board_shows_monthly_rows_by_default_when_detected():
     weekly = _quota()
     monthly = _quota(id="zeta:monthly", windowSeconds=30 * DAY, windowLabel="Monthly")
     burst = _quota(id="zeta:5h", windowSeconds=FIVE_H, role="burst", windowLabel="5H")
@@ -59,7 +59,16 @@ def test_board_hides_monthly_rows_by_default():
     visible = plugin_api.filter_board_rows(
         [weekly, burst, monthly, balance], monthly_visibility={},
     )
-    assert [row.id for row in visible] == ["zeta:weekly", "zeta:5h", "deepseek"]
+    assert [row.id for row in visible] == ["zeta:weekly", "zeta:5h", "zeta:monthly", "deepseek"]
+
+
+def test_board_hides_monthly_row_when_user_explicitly_turns_it_off():
+    weekly = _quota()
+    monthly = _quota(id="zeta:monthly", windowSeconds=30 * DAY, windowLabel="Monthly")
+    visible = plugin_api.filter_board_rows(
+        [weekly, monthly], monthly_visibility={"zeta": False},
+    )
+    assert [row.id for row in visible] == ["zeta:weekly"]
 
 
 def test_board_shows_monthly_row_when_switch_on():
@@ -71,7 +80,7 @@ def test_board_shows_monthly_row_when_switch_on():
     assert [row.id for row in visible] == ["zeta:weekly", "zeta:monthly"]
 
 
-def test_settings_monthly_switch_defaults_off_and_appears_only_with_month_window(monkeypatch):
+def test_settings_monthly_switch_defaults_on_and_appears_only_with_month_window(monkeypatch):
     write_env({"KIMI_API_KEY": "kimi-fixture"})
     write_auth({})
     monthly = _quota(id="kimi:monthly", providerId="kimi", label="KIMI", windowSeconds=30 * DAY)
@@ -82,6 +91,26 @@ def test_settings_monthly_switch_defaults_off_and_appears_only_with_month_window
         {"at": 1.0, "payload": plugin_api.MeterPayload(rows=[weekly, monthly], generatedAt=1.0),
          "identity_overrides": {}},
     )
+    payload = plugin_api.get_provider_settings()
+    kimi = next(item for item in payload.providers if item.id == "kimi")
+    assert kimi.hasMonthly is True
+    assert kimi.monthlyEnabled is True
+
+
+def test_settings_respects_explicit_monthly_opt_out(monkeypatch):
+    write_env({"KIMI_API_KEY": "kimi-fixture"})
+    write_auth({})
+    monthly = _quota(id="kimi:monthly", providerId="kimi", label="KIMI", windowSeconds=30 * DAY)
+    monkeypatch.setattr(
+        plugin_api,
+        "_cache",
+        {"at": 1.0, "payload": plugin_api.MeterPayload(rows=[monthly], generatedAt=1.0),
+         "identity_overrides": {}},
+    )
+    monkeypatch.setattr(
+        plugin_api, "_read_plugin_settings", lambda: {"monthlyVisibility": {"kimi": False}},
+    )
+
     payload = plugin_api.get_provider_settings()
     kimi = next(item for item in payload.providers if item.id == "kimi")
     assert kimi.hasMonthly is True

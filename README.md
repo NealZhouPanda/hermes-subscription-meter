@@ -44,9 +44,9 @@ Anything detected but lacking a fetcher is shown as `no_fetcher` rather than sil
 
 ## How it works
 
-- `plugin.js` — the desktop panel: the weekly matrix (84 cells) with the 5-hour lock overlay, the monthly zone (8-hour cells, sized to the length of the current month), balance bars, automatic ranking of the model it suggests you use first, and the per-provider visibility toggles — plus a monthly-quota toggle that only appears for providers that actually expose a monthly window (persisted per profile in plugin settings).
+- `plugin.js` — the desktop panel: the weekly matrix (84 cells) with the 5-hour lock overlay, the monthly zone (8-hour cells, sized to the length of the current month), balance bars, automatic ranking of the model it suggests you use first, and per-provider visibility toggles. A monthly quota is shown by default when detected; the provider-specific switch can hide it.
 - `dashboard/plugin_api.py` — a FastAPI router that turns credentials into provider-neutral quota rows. Secrets stay in memory only; they never appear in API responses, logs or error strings.
-- `tests/` — 109 frontend tests (node:test) + 128 backend tests (pytest).
+- `tests/` — 109 frontend tests (node:test) + 132 backend tests (pytest).
 
 ## Development
 

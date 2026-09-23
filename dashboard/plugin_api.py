@@ -135,10 +135,9 @@ class ProviderSetting(BaseModel):
     label: str
     kind: str
     enabled: bool = True
-    # Extra switch, only meaningful when a calendar-month quota window exists.
-    # Default off: monthly rows stay off the board until the user turns them on.
+    # A provider's monthly quota is visible by default when detected; users can opt out.
     hasMonthly: bool = False
-    monthlyEnabled: bool = False
+    monthlyEnabled: bool = True
     status: str = "unknown"
     actionHint: str = ""
     checkedAt: Optional[float] = None
@@ -735,11 +734,11 @@ def filter_board_rows(
     rows: list[MeterRow],
     monthly_visibility: Optional[dict[str, Any]] = None,
 ) -> list[MeterRow]:
-    """Drop monthly quota rows unless that provider's monthly switch is on (default off)."""
+    """Drop monthly quota rows only when that provider explicitly turned them off."""
     vis = monthly_visibility if isinstance(monthly_visibility, dict) else {}
     visible: list[MeterRow] = []
     for row in rows:
-        if is_monthly_quota_row(row) and vis.get(row.providerId, False) is not True:
+        if is_monthly_quota_row(row) and vis.get(row.providerId) is False:
             continue
         visible.append(row)
     return visible
@@ -776,8 +775,8 @@ def get_provider_settings() -> ProviderSettingsPayload:
     for identity in _identify_all():
         raw = visibility.get(identity["id"], True)
         enabled = raw if isinstance(raw, bool) else True
-        monthly_raw = monthly_visibility.get(identity["id"], False)
-        monthly_enabled = monthly_raw if isinstance(monthly_raw, bool) else False
+        monthly_raw = monthly_visibility.get(identity["id"], True)
+        monthly_enabled = monthly_raw if isinstance(monthly_raw, bool) else True
         has_monthly = any(
             is_monthly_quota_row(row) and row.providerId == identity["id"]
             for row in cached_rows
@@ -2059,7 +2058,7 @@ def build_payload() -> MeterPayload:
 
 
 def build_visible_payload() -> MeterPayload:
-    """Cached fetch, then drop monthly quota rows the user has not switched on."""
+    """Cached fetch, then drop monthly quota rows the user explicitly hid."""
     payload = build_payload()
     settings = _read_plugin_settings()
     monthly_visibility = settings.get("monthlyVisibility")
