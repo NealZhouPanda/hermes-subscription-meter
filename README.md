@@ -10,7 +10,9 @@ A subscription-quota dashboard plugin for [Hermes Agent](https://hermes-agent.no
 
 ## Install
 
-In the Hermes desktop app: **Settings → Plugins → Install from Git**, then enter:
+One installer, both halves: the agent-side backend (`plugin.yaml` + `__init__.py` + `dashboard/`)
+and the desktop panel (`desktop/plugin.js`). In the Hermes desktop app, open
+**Settings → Plugins → Install from Git** and enter:
 
 ```
 NealZhouPanda/hermes-subscription-meter
@@ -22,7 +24,10 @@ Or from the CLI:
 hermes plugins install NealZhouPanda/hermes-subscription-meter
 ```
 
-The installer detects both components automatically: the agent-side backend (`plugin.yaml` + `__init__.py` + `dashboard/`) and the desktop-side panel (`plugin.js`). Restart the Hermes desktop app after installing.
+The app copies the desktop half into its own plugin folder. If the panel does not appear,
+**restart the Hermes desktop app** or press **Rescan** on the Plugins page. Both halves ship
+switched off — turn the plugin and its desktop panel on in **Plugins**; the panel then docks as
+a bottom pane, with a sidebar page and a ⌘K command.
 
 ## Supported providers
 
@@ -44,7 +49,7 @@ Anything detected but lacking a fetcher is shown as `no_fetcher` rather than sil
 
 ## How it works
 
-- `plugin.js` — the desktop panel: the weekly matrix (84 cells) with the 5-hour lock overlay, the monthly zone (8-hour cells, sized to the length of the current month), balance bars, automatic ranking of the model it suggests you use first, and per-provider visibility toggles. A monthly quota is shown by default when detected; the provider-specific switch can hide it.
+- `desktop/plugin.js` — the desktop panel: the weekly matrix (84 cells) with the 5-hour lock overlay, the monthly zone (8-hour cells, sized to the length of the current month), balance bars, automatic ranking of the model it suggests you use first, and per-provider visibility toggles. A monthly quota is shown by default when detected; the provider-specific switch can hide it.
 - `dashboard/plugin_api.py` — a FastAPI router that turns credentials into provider-neutral quota rows. Secrets stay in memory only; they never appear in API responses, logs or error strings.
 - `tests/` — 109 frontend tests (node:test) + 132 backend tests (pytest).
 

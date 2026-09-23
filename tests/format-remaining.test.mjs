@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const pluginSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf8')
+const pluginSource = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
 const functionSource = pluginSource.match(/function formatRemaining\(resetAt, now\) \{[\s\S]*?\n\}/)?.[0]
 assert.ok(functionSource, 'formatRemaining must exist in plugin.js')
 const formatRemaining = vm.runInNewContext(`${functionSource}\nformatRemaining`)

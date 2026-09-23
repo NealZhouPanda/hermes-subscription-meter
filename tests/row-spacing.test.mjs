@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-const pluginSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf8')
+const pluginSource = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
 
 test('quota rows keep a compact six-pixel rhythm and balanced section spacing', () => {
   assert.match(pluginSource, /rowGap: 6, paddingTop: 8, paddingBottom: 8/)

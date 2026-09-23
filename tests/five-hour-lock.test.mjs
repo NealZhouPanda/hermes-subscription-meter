@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const pluginSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf8')
+const pluginSource = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
 
 // ---------------------------------------------------------------------------
 // 提取排序相关函数（同 peak-capsule.test.mjs 的提取方式）

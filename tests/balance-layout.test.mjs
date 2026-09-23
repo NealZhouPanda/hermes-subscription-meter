@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-const pluginSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf8')
+const pluginSource = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
 
 test('balance blocks wrap as whole units and dividers stay visually centered', () => {
   // 2026-09-10 Neal 定：等宽 grid 改内容紧凑 flex——条目文字长短不一，等宽列里

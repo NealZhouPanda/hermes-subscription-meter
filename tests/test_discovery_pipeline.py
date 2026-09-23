@@ -71,7 +71,7 @@ def test_unrecognized_and_no_fetcher_labels_present_in_desktop_frontend():
     """Frontend CONNECTION_LABELS must carry the unrecognized / no_fetcher copy."""
     from pathlib import Path
 
-    js = Path(plugin_api.__file__).resolve().parents[1] / "plugin.js"
+    js = Path(plugin_api.__file__).resolve().parents[1] / "desktop" / "plugin.js"
     text = js.read_text(encoding="utf-8")
     assert "unrecognized" in text and "API key not recognized" in text
     assert "no_fetcher" in text and "No fetcher available" in text

@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const rawSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf8')
+const rawSource = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
 const FIXED_NOW = Date.parse('2026-09-05T00:00:00Z')
 
 function buildSandbox({ responses }) {

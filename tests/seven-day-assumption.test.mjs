@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const pluginSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf8')
+const pluginSource = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
 
 // 与 five-hour-lock/readability-render 同款：vm 跑全量源码（import 摘除、
 // export default 换赋值），沙箱里直接取真实函数——避免脆弱的源码正则提取。

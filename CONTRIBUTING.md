@@ -13,7 +13,7 @@ In scope (must be English):
 
 - `plugin.yaml` — `description`
 - `dashboard/manifest.json` — `label`, `description`
-- Panel UI copy in `plugin.js` — status labels, settings page, aria-labels,
+- Panel UI copy in `desktop/plugin.js` — status labels, settings page, aria-labels,
   error messages, every user-visible string
 - `README.md`, commit messages, PR titles and descriptions
 

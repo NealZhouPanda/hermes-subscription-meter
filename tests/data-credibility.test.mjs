@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const rawSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf8')
+const rawSource = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
 
 function buildSandbox({ responses = [], crossProfileApi = null } = {}) {
   const ctxCalls = []

@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import vm from 'node:vm'
 
-const pluginSource = readFileSync(new URL('../plugin.js', import.meta.url), 'utf8')
+const pluginSource = readFileSync(new URL('../desktop/plugin.js', import.meta.url), 'utf8')
 
 // 与 five-hour-lock/seven-day-assumption 同款：vm 跑全量源码，取真实函数 / 真实渲染树。
 function buildSandbox() {
