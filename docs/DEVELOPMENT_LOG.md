@@ -1,5 +1,11 @@
 # Development Log
 
+2026-09-26 — a floor under the high-contrast palette
+
+- The colour-vision palette fixed the worst state pair (available green ↔ surplus sky blue, ΔE 12.3 → 52.7 under the Machado simulation) but six of the nine pairs moved the other way — `green ↔ orange` 35.9 → 19.2, `blueLocked ↔ orange` 82.1 → 32.8, and so on — and six pairs still miss the 3:1 luminance reading of WCAG 1.4.1 (`green ↔ greenLocked` even fell from 2.37:1 to 1.90:1). Around 19 stays in the "clearly different" band, so the palette is kept as is; what it must not do is drift further.
+- `tests/color-modes.test.mjs` now carries a per-pair floor table (the measurements taken 2026-09-26, tolerance 0.5), the three pairs that do clear 3:1, and a count of the six traded-down pairs, so a silent further trade fails the suite. Verified to bite: forcing `blueLocked = blue` reports `blue ↔ blueLocked ΔE 0.0 < 24.2`, and lightening the locked green one step (`#13581E → #165E22`) reports `green ↔ greenLocked 16.9 < 18.9`.
+- Lowering a pair now means editing that table deliberately and stating the cost in the commit. If the trade is ever judged too expensive, the other lever is a second, non-colour channel on locked cells (hatch or dots). Frontend suite: 165/165.
+
 2026-09-26 — colour-vision mode: a second palette, an outline, and copy that follows both
 
 - The five cell colours were picked on 2026-09-12 without a colour-vision check. Under a full-strength Machado simulation the worst pair in the default palette is `#14AE68` (available) against `#28A7E0` (surplus): CIELAB ΔE 12.3 for a tritanope — the same colour — and their WCAG relative-luminance contrast is 1.06:1, far under the 3:1 that §1.4.1 accepts as a distinction other than colour. Protanopia and deuteranopia stay at ΔE ≥ 24; this is a blue-blind failure, not a red-green one, which is why it had gone unnoticed.

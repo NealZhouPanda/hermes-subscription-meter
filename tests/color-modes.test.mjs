@@ -177,3 +177,44 @@ test('开关与描边真的接在界面上（不是只有配色常量）', () =>
   assert.match(pluginSource, /outline: swatchOutline/, '图例色块要挂描边')
   assert.ok(pluginSource.includes("outline: cellOutline,\n            outlineOffset: '-1px'"), '描边要内缩一圈（否则会盖住相邻格）')
 })
+
+// --- 防退化钉（2026-09-26 Neal 定）------------------------------------------------
+// 换来的取舍先摆明：新配色把「可用绿 ↔ 富余蓝」从 ΔE 12.3 拉到 52.7（这是它存在的理由），
+// 代价是另外六对的两两色差被压小 —— 例：「剩余可用 ↔ 超额使用」35.9 → 19.2。
+// 十九分左右仍在「能分开」档，所以配色先不动，但**不许再往下走**：下面这张表是
+// 2026-09-26 的实测基线，任何一对跌破基线（容差 0.5 给取整留边）就红。
+// 想把某对再压低，必须显式改这张表，并在 commit 里写清代价。
+const HIGH_CONTRAST_PAIR_FLOOR = {
+  green: { greenLocked: 18.9, blue: 52.7, orange: 19.2 },
+  greenLocked: { blue: 69.0, blueLocked: 43.3, orange: 33.3 },
+  blue: { blueLocked: 24.2, orange: 55.8 },
+  blueLocked: { orange: 32.8 }
+}
+// 明度判据（WCAG 1.4.1 的 3:1）今天过得去的只有三对 —— 本模式修的是最差那一对，
+// 不是全部；这三对不许丢，「只有三对过」这件事也一并记着。
+const LUMINANCE_PASSING_PAIRS = ['green|blue', 'greenLocked|blue', 'greenLocked|blueLocked']
+const FLOOR_PAIRS = Object.keys(HIGH_CONTRAST_PAIR_FLOOR)
+  .flatMap(a => Object.keys(HIGH_CONTRAST_PAIR_FLOOR[a]).map(b => [a, b]))
+const pairWorstDeltaE = (palette, a, b) => Math.min(...Object.keys(CVD_MATRICES).map(kind =>
+  deltaE(simulate(palette[a], kind), simulate(palette[b], kind))))
+
+test('防退化：高对比度配色九对状态都不许跌破 2026-09-26 基线', () => {
+  for (const [a, b] of FLOOR_PAIRS) {
+    const actual = pairWorstDeltaE(CONTRAST_PALETTE, a, b)
+    assert.ok(actual >= HIGH_CONTRAST_PAIR_FLOOR[a][b] - 0.5,
+      `${a} ↔ ${b} 模拟最差 ΔE ${actual.toFixed(1)} 跌破基线 ${HIGH_CONTRAST_PAIR_FLOOR[a][b]}`)
+  }
+  // 已经让给新配色的那六对：谁想让掉的再让一步，上面的表会先红。
+  const traded = FLOOR_PAIRS.filter(([a, b]) => pairWorstDeltaE(CONTRAST_PALETTE, a, b) < pairWorstDeltaE(DEFAULT_PALETTE, a, b))
+  assert.equal(traded.length, 6, `让掉的对比数变了（基线 6）：${traded.map(p => p.join('↔')).join(', ')}`)
+})
+
+test('防退化：过 3:1 明度判据的那三对不许丢', () => {
+  for (const key of LUMINANCE_PASSING_PAIRS) {
+    const [a, b] = key.split('|')
+    assert.ok(contrastRatio(CONTRAST_PALETTE[a], CONTRAST_PALETTE[b]) >= 3, `${key} 掉了 3:1`)
+  }
+  const passing = FLOOR_PAIRS.filter(([a, b]) => contrastRatio(CONTRAST_PALETTE[a], CONTRAST_PALETTE[b]) >= 3)
+  assert.equal(passing.length, LUMINANCE_PASSING_PAIRS.length,
+    `过 3:1 的对数变了：${passing.length}（基线 ${LUMINANCE_PASSING_PAIRS.length}）`)
+})
