@@ -263,7 +263,11 @@ test('settings save failure notifies a fixed safe message, never raw error text'
   sandbox.__resetHooksState()
   collect(sandbox.ProviderSettingsPanel({ rest: stableRest }))
   assert.ok(switchCalls.length, 'toggle switch must be rendered after providers load')
-  switchCalls[0].onCheckedChange(false)
+  // 按 aria-label 取 provider 的启用开关：面板里还有本机的显示偏好开关（它出现在首帧，
+  // provider 数据到达之前）和 hasMonthly provider 才有的月额度开关，位置都不固定。
+  const providerSwitch = switchCalls.find(props => String(props['aria-label']) === 'Show GLM in the subscription quota window')
+  assert.ok(providerSwitch, 'provider toggle must be rendered after providers load')
+  providerSwitch.onCheckedChange(false)
   await flush(); await flush()
   assert.ok(notifications.length, 'a failure notification must be emitted')
   const text = notifications.map(n => String(n.message)).join(' ')

@@ -309,6 +309,79 @@ const COLORS = {
   danger: 'var(--ui-danger, #f87171)'
 }
 
+// 高对比度（服务色觉异常）配色 —— 2026-09-26 Neal 定：
+// 语义仍是「绿 = 可用剩余 / 黄 = 富余 / 红 = 超额」，色值取自 Okabe & Ito「Color Universal
+// Design」（对所有色觉类型都可区分的配色，SPIE 2008），判据用 WCAG 2.x §1.4.1 的可操作那条：
+// 两色若明度对比 ≥ 3:1，即算「颜色之外还有一层区分」。
+// 实测（Machado 色觉缺失矩阵 + CIELAB ΔE，钉在 tests/color-modes.test.mjs）：
+//   默认配色三种色盲下最差 ΔE 12.3 —— 蓝盲把「可用绿 #14AE68」「富余蓝 #28A7E0」看成同色
+//   （明度对比只有 1.06:1）；本配色最差 ΔE 18.9，「可用↔富余」明度对比 3.42:1 ✓ 过 3:1。
+// 本模式下格子另加一圈描边：亮黄 #F0E442 在白底上对比只有 1.32，靠描边给出边界——
+// WCAG 的主判据本来就是「颜色之外再给一层区分」（苹果 Differentiate Without Colour、Discord
+// 的色盲模式加图标，都是同一条路）。
+const HIGH_CONTRAST_COLORS = {
+  green: '#228833',       // 可用剩余
+  greenLocked: '#13581E', // 可用剩余 · 被 5h 窗口锁定
+  blue: '#F0E442',        // 富余（已流逝未消耗）
+  blueLocked: '#A8A02B',  // 富余 · 锁定
+  orange: '#EE6677'       // 超额使用
+}
+const COLOR_MODE_STORAGE_KEY = 'subscription-meter:color-mode'
+const HIGH_CONTRAST_MODE = 'high-contrast'
+
+// 按机器保存：这是「这台屏幕前这个人的眼睛」的事，不跟 profile 走（苹果的
+// Differentiate Without Colour 也是设备级）。localStorage 可能不可用（隐私模式等）：
+// 读不到就是默认配色，不报错也不提示。
+function readColorMode() {
+  try {
+    return window.localStorage?.getItem(COLOR_MODE_STORAGE_KEY) === HIGH_CONTRAST_MODE
+      ? HIGH_CONTRAST_MODE
+      : 'default'
+  } catch (error) {
+    return 'default'
+  }
+}
+
+function writeColorMode(mode) {
+  try {
+    window.localStorage?.setItem(COLOR_MODE_STORAGE_KEY, mode === HIGH_CONTRAST_MODE ? HIGH_CONTRAST_MODE : 'default')
+  } catch (error) {
+    // 存不下就算了：本次会话仍生效（事件已派发），下次打开回默认配色。
+  }
+}
+
+// 通知看板重读设置。宿主环境（和某些测试沙箱）可能没有全局 Event：
+// 派发失败只意味着「这一帧不自动刷新」，不该把设置面板带崩。
+function notifySettingsChanged() {
+  try {
+    window.dispatchEvent(new Event('subscription-meter:settings-changed'))
+  } catch (error) {
+    // 忽略：偏好已经写下了，下次渲染自然生效。
+  }
+}
+
+const isHighContrast = mode => mode === HIGH_CONTRAST_MODE
+const paletteFor = mode => (isHighContrast(mode) ? { ...COLORS, ...HIGH_CONTRAST_COLORS } : COLORS)
+// 高对比度模式下格子的描边（挂到 outline 而不是 border/inset-shadow：outline 画在子元素之上，
+// 不会被格子里那条「已消耗」填充盖掉）。
+const HIGH_CONTRAST_CELL_OUTLINE = '1px solid rgba(128, 128, 128, 0.55)'
+
+// 面板级：跟随本机配色模式。设置里切换后靠同一个 settings-changed 事件同步给看板
+// （与月额度开关同一条通道）；storage 事件让同一台机器的另一个窗口也跟着变。
+function useColorMode() {
+  const [mode, setMode] = useState(readColorMode)
+  useEffect(() => {
+    const sync = () => setMode(readColorMode())
+    window.addEventListener('subscription-meter:settings-changed', sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener('subscription-meter:settings-changed', sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
+  return mode
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
@@ -373,7 +446,7 @@ function lockedRemainingCellCount(row, sibling) {
 // 传进来只为选 可用/受限 色档。2×2 语义不变：
 //   已流逝+已消耗=track；已流逝+未消耗=富余（天蓝/深蓝）；
 //   未流逝+已消耗=超额（橙，不分锁定）；未流逝+未消耗=剩余（翠绿/深绿）。
-function weeklyCell(now, subscription, index, locked = false) {
+function weeklyCell(now, subscription, index, locked = false, palette = COLORS) {
   const cellCount = meterCellCount(subscription)
   const usedPercent = clamp(Number(subscription.usedPercent) || 0, 0, 100)
   // 时间轴判据只有 toEpochMillis 一处：resetAt 缺失 / 0 / 负数 / 非数 → null（= 没有
@@ -392,8 +465,8 @@ function weeklyCell(now, subscription, index, locked = false) {
   if (elapsed >= 1) fillRatio = 0
   else if (elapsed > 0) fillRatio = 1 - elapsed
 
-  const goneColor = quotaGone ? COLORS.track : (locked ? COLORS.blueLocked : COLORS.blue)
-  const presentColor = quotaGone ? COLORS.orange : (locked ? COLORS.greenLocked : COLORS.green)
+  const goneColor = quotaGone ? palette.track : (locked ? palette.blueLocked : palette.blue)
+  const presentColor = quotaGone ? palette.orange : (locked ? palette.greenLocked : palette.green)
 
   return { fillRatio, goneColor, presentColor }
 }
@@ -910,12 +983,15 @@ function WeeklyMeter({ subscription, now, fiveHourSibling }) {
   const quotaGoneBoundary = quotaCellCount(subscription.usedPercent, cellCount)
   const lockedStart = cellCount - lockedCells
   const isLockedIndex = index => index >= quotaGoneBoundary && index >= lockedStart
+  const colorMode = useColorMode()
+  const palette = paletteFor(colorMode)
+  const cellOutline = isHighContrast(colorMode) ? HIGH_CONTRAST_CELL_OUTLINE : undefined
   const cells = useMemo(
     () =>
       Array.from({ length: cellCount }, (_, index) =>
-        weeklyCell(now, subscription, index, isLockedIndex(index))),
+        weeklyCell(now, subscription, index, isLockedIndex(index), palette)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [now, subscription, fiveHourSibling, quotaGoneBoundary, lockedStart, cellCount]
+    [now, subscription, fiveHourSibling, quotaGoneBoundary, lockedStart, cellCount, palette]
   )
   const gridChildren = []
   cells.forEach((cell, index) => {
@@ -937,10 +1013,14 @@ function WeeklyMeter({ subscription, now, fiveHourSibling }) {
       style: isLocked
         // 锁定格不叠加日分界虚线，避免左边线加深。
         ? {
-            backgroundColor: cell.goneColor
+            backgroundColor: cell.goneColor,
+            outline: cellOutline,
+            outlineOffset: '-1px'
           }
         : {
             backgroundColor: cell.goneColor,
+            outline: cellOutline,
+            outlineOffset: '-1px',
             borderLeft: isDayDivider(index, dayCellInterval) ? DAY_DIVIDER : undefined
           },
       children: fill
@@ -1120,21 +1200,69 @@ const CONNECTION_LABELS = {
   unrecognized: 'API key not recognized', no_fetcher: 'No fetcher available'
 }
 
-const WHOLE_HELP_LINES = [
+// 图例文案跟着配色走（2026-09-26）：高对比度模式下屏幕上没有「天蓝/橙」这两个颜色，
+// 图例继续说它们就是错的——颜色名必须描述此刻真正画出来的颜色。
+const HELP_COLOR_NAMES = {
+  default: { available: 'Green', availableLocked: 'Dark green', surplus: 'Sky blue', surplusLocked: 'Dark blue', over: 'Orange' },
+  [HIGH_CONTRAST_MODE]: { available: 'Green', availableLocked: 'Dark green', surplus: 'Yellow', surplusLocked: 'Dark yellow', over: 'Red' }
+}
+
+function wholeHelpLines(palette, mode) {
+  const names = HELP_COLOR_NAMES[isHighContrast(mode) ? HIGH_CONTRAST_MODE : 'default']
+  return [
   { text: '84 cells align quota with cycle time; each cell = window / 84 (a 7-day window = 2 hours).' },
-  { swatch: COLORS.green, text: 'Green: remaining available quota' },
-  { swatch: COLORS.greenLocked, text: 'Dark green: remaining quota locked by the 5h window' },
-  { swatch: COLORS.blue, text: 'Sky blue: surplus available quota' },
-  { swatch: COLORS.blueLocked, text: 'Dark blue: surplus quota locked by the 5h window' },
-  { swatch: COLORS.orange, text: 'Orange: over-consumed quota' },
+  { swatch: palette.green, text: `${names.available}: remaining available quota` },
+  { swatch: palette.greenLocked, text: `${names.availableLocked}: remaining quota locked by the 5h window` },
+  { swatch: palette.blue, text: `${names.surplus}: surplus available quota` },
+  { swatch: palette.blueLocked, text: `${names.surplusLocked}: surplus quota locked by the 5h window` },
+  { swatch: palette.orange, text: `${names.over}: over-consumed quota` },
   { text: 'The dot by a plan name distinguishes providers — not cell colors or balance status.' },
   { text: '"N% left" = remaining quota (not used). "Reset" = time until the next cycle.' },
   { text: '"Unknown —" = no quota percentage returned, so no surplus is shown.' },
   { text: '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.' }
-]
+  ]
+}
+
+// 显示偏好（按机器保存）：高对比度配色，服务色觉异常用户（2026-09-26 Neal 定）。
+// 与苹果「Differentiate Without Colour」、Discord Colorblind Mode 同一条路：
+// 换一套对三种色觉类型都可区分的配色，并给每个格子加描边 —— 颜色不单独承载信息。
+function DisplaySettingsSection() {
+  const mode = useColorMode()
+  return jsxs('div', {
+    className: 'mt-3 rounded-md border border-(--ui-stroke-secondary) p-3',
+    children: [
+      jsx('h2', { className: 'text-sm font-medium text-foreground', children: 'Display' }),
+      jsxs('label', {
+        className: 'mt-2 flex items-start gap-2',
+        children: [
+          jsx(Switch, {
+            checked: isHighContrast(mode),
+            'aria-label': 'High-contrast colors',
+            onCheckedChange: checked => {
+              writeColorMode(checked ? HIGH_CONTRAST_MODE : 'default')
+              notifySettingsChanged()
+            }
+          }),
+          jsxs('span', {
+            className: 'text-[0.7rem] leading-snug text-(--ui-text-secondary)',
+            children: [
+              jsx('span', { className: 'block text-foreground', children: 'High-contrast colors' }),
+              jsx('span', {
+                children: 'For colour-vision deficiencies: every cell gets an outline, and the matrix uses a palette that stays distinguishable with protanopia, deuteranopia or tritanopia. Saved on this computer.'
+              })
+            ]
+          })
+        ]
+      })
+    ]
+  })
+}
 
 // 五色图例（2026-09-12 Neal 定，与 Neal 截图一致，一条一行）：色块对准那一行。
 function UsageHelpSection() {
+  const mode = useColorMode()
+  const palette = paletteFor(mode)
+  const swatchOutline = isHighContrast(mode) ? HIGH_CONTRAST_CELL_OUTLINE : undefined
   return jsxs('div', {
     className: 'mt-3 rounded-md border border-(--ui-stroke-secondary) p-3',
     children: [
@@ -1145,7 +1273,7 @@ function UsageHelpSection() {
       jsx('div', {
         // 可滚动：说明条目多时不挤坏设置窗口（maxHeight + overflowY auto）。
         style: { marginTop: 8, maxHeight: 260, overflowY: 'auto', fontSize: '0.72rem', lineHeight: 1.5, color: 'var(--ui-text-secondary)' },
-        children: WHOLE_HELP_LINES.map(item =>
+        children: wholeHelpLines(palette, mode).map(item =>
           jsxs('span', {
             style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 },
             children: [
@@ -1157,7 +1285,9 @@ function UsageHelpSection() {
                       width: 6,
                       height: 6,
                       borderRadius: 2,
-                      backgroundColor: item.swatch
+                      backgroundColor: item.swatch,
+                      outline: swatchOutline,
+                      outlineOffset: '-1px'
                     },
                     'aria-hidden': true
                   })
@@ -1209,7 +1339,7 @@ function ProviderSettingsPanel({ rest }) {
       })
       setProviders(Array.isArray(payload?.providers) ? payload.providers : [])
       setState('ready')
-      window.dispatchEvent(new Event('subscription-meter:settings-changed'))
+      notifySettingsChanged()
     } catch {
       // Fixed safe message only: the raw exception may embed secrets/URLs.
       setState('error')
@@ -1234,7 +1364,7 @@ function ProviderSettingsPanel({ rest }) {
       })
       setProviders(Array.isArray(payload?.providers) ? payload.providers : [])
       setState('ready')
-      window.dispatchEvent(new Event('subscription-meter:settings-changed'))
+      notifySettingsChanged()
     } catch {
       setState('error')
       host.notify({
@@ -1256,7 +1386,7 @@ function ProviderSettingsPanel({ rest }) {
       const payload = await rest('/settings')
       setProviders(Array.isArray(payload?.providers) ? payload.providers : [])
       setState('ready')
-      window.dispatchEvent(new Event('subscription-meter:settings-changed'))
+      notifySettingsChanged()
     } catch {
       setState('error')
       host.notify({ kind: 'error', message: 'Refreshing connection status failed — try again later.' })
@@ -1366,6 +1496,7 @@ function ProviderSettingsPanel({ rest }) {
           }, provider.id)
         )
       }),
+      jsx(DisplaySettingsSection, {}),
       jsx(UsageHelpSection, {})
     ]
   })
