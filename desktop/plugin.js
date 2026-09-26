@@ -446,6 +446,50 @@ function activePeakRule(row, now) {
   return row?.peakHours ? peakRuleHit(row.peakHours, now) : null
 }
 
+// 高峰时段提示（全球用户审计 #5，2026-09-26）：供应商给的时间窗带的是**它自己的时区**，
+// 只写「Peak hours」对别的时区用户等于没说。这里把窗口同时翻成用户本地时间。
+// 两个时区此刻的偏移用 Intl 各印一次相减得到（按当前时刻算；跨夏令时切换当天可能差 1 小时，
+// 所以提示里同时保留对方时区名，不假装唯一解释）。
+function zoneOffsetMinutes(timeZone, at) {
+  if (!timeZone) return null
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone, hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
+    }).formatToParts(at)
+    const get = type => Number(parts.find(part => part.type === type)?.value)
+    const asUtc = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') % 24, get('minute'), get('second'))
+    return Number.isFinite(asUtc) ? Math.round((asUtc - at) / 60000) : null
+  } catch (error) {
+    return null
+  }
+}
+
+const minutesToClock = minutes => {
+  const wrapped = ((minutes % 1440) + 1440) % 1440
+  return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`
+}
+
+function localTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null
+  } catch (error) {
+    return null
+  }
+}
+
+function peakWindowText(rule, now, viewerZone = localTimeZone()) {
+  if (!rule || !Array.isArray(rule.windows) || !rule.windows.length) return null
+  const days = rule.daily ? 'Daily' : 'Mon–Fri'
+  const windows = rule.windows.map(([from, to]) => `${minutesToClock(from)}–${minutesToClock(to)}`).join(', ')
+  const head = `Peak hours: ${days} ${windows} (${rule.timezone})`
+  if (!viewerZone || viewerZone === rule.timezone) return head
+  const shift = (zoneOffsetMinutes(viewerZone, now) ?? 0) - (zoneOffsetMinutes(rule.timezone, now) ?? 0)
+  if (!shift) return head
+  const local = rule.windows.map(([from, to]) => `${minutesToClock(from + shift)}–${minutesToClock(to + shift)}`).join(', ')
+  return `${head} = ${local} your time`
+}
+
 // 综合优先度 P（2026-09-09 Neal 定「蓝绿比」，09-12 补负富余）：P = (已流逝 − 已用) ÷ 未流逝。
 // 语义=蓝格÷绿格：按当前消耗节奏推算重置前的富余度，富余越多越先薅。
 // 用超进度（e≤u）记负分、不再截断成 0（2026-09-12 Neal 定）：负值=欠账深度，
@@ -952,7 +996,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NA
         ? jsx('span', {
             className: 'shrink-0 rounded-full px-1.5 py-px font-mono text-[0.5rem] font-semibold leading-none text-white',
             style: { backgroundColor: COLORS.danger },
-            title: 'Peak hours: priority halved — off-peak usage costs less',
+            title: `${peakWindowText(activePeakRule(subscription, now), now)} — priority halved, off-peak usage costs less`,
             'aria-label': 'Peak hours',
             children: 'PEAK'
           })

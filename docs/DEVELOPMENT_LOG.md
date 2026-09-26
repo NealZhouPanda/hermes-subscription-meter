@@ -1,5 +1,12 @@
 # Development Log
 
+2026-09-26 — global-user pass, part 3: peak hours in the reader's own clock
+
+- The PEAK chip only said "Peak hours: priority halved", while the windows it warns about are expressed in the provider's timezone — useless for anyone living elsewhere. The chip's title is now built by `peakWindowText`, which prints the provider window with its zone and, when the reader is somewhere else, the same window converted to their local clock: `Peak hours: Mon–Fri 14:00–18:00 (Asia/Shanghai) = 02:00–06:00 your time`. Offsets come from `Intl` at the current instant rather than a hardcoded +8, so daylight saving is handled; the provider zone stays in the string so a DST-transition day cannot quietly mislead. Midnight-wrapping windows render as `23:00–01:00` instead of negative minutes.
+- `tests/peak-hours-local-time.test.mjs` pins the conversion (same zone, UTC, New York summer vs winter, overnight window, multiple windows, daily vs Mon–Fri, missing rule) plus a source assertion that the chip uses this text at all. The peak-capsule test now checks "both row components render a gated capsule" instead of counting `activePeakRule` calls, which was only ever a proxy.
+- Decided not to build an i18n layer: the panel's copy is English by CONTRIBUTING, and the desktop app exposes no plugin-facing translation API, so a private mechanism would only add a second vocabulary nobody else reads. Recorded here so the next person does not rediscover it as a gap.
+- Frontend suite: 148/148.
+
 2026-09-26 — global-user pass, part 2: every fixed column is measured, not assumed
 
 - The quota and reset columns were sized from numbers measured once with the author's macOS font stack (`3.75rem`, `11.5rem`). A headless probe using the panel's own classes and font sizes shows why that leaks: `Unknown —` needs 55.2px in SF Pro but 64.5px when the dash comes from a CJK font, `30D Reset 30d 23h 59m` goes 118.8 → 126.4px, and the 60px quota track was already down to 1px of slack (`100% left` measures 58.95px in the cell's mono font). All three tracks now go through the same measurement as the name column: `quotaTrackPxFrom` measures the quota-cell strings, `metaTrackPxFrom` measures the widest reset cell (worst-case clock + 6px gap + surplus suffix); both round up to the 0.5rem grid and keep the old numbers as floors. On the author's machine the only change is `3.75rem → 4rem` for the quota column (a 30-day row also moves the reset column 11.5rem → 12rem); on a wider font every track and the narrow-layout breakpoint grow with it.

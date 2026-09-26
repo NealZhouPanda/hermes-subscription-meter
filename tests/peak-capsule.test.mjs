@@ -148,6 +148,13 @@ test('balance rows still trail all quota rows', () => {
 
 test('PEAK capsule renders on both quota and balance rows', () => {
   const quotaCalls = pluginSource.match(/activePeakRule\(subscription, now\)/g) || []
-  assert.equal(quotaCalls.length, 2, 'capsule wired into WeeklyQuotaRow and BalanceSpendRow')
+  // 不再数调用次数（行内现在不止一处用 activePeakRule：门控 + 徽标 title 的本地时间说明），
+  // 改成逐个组件检查「有徽标 + 由高峰规则门控」——这才是要守的 invariants。
+  assert.ok(quotaCalls.length >= 2, 'capsule wired into WeeklyQuotaRow and BalanceSpendRow')
   assert.match(pluginSource, /children: 'PEAK'/)
+  for (const name of ['WeeklyQuotaRow', 'BalanceSpendRow']) {
+    const body = pluginSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}`))?.[0]
+    assert.ok(body && body.includes("children: 'PEAK'"), `${name} must render the PEAK capsule`)
+    assert.ok(body && body.includes('activePeakRule(subscription, now)'), `${name} must gate it on the peak rule`)
+  }
 })
