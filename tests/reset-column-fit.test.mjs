@@ -6,6 +6,12 @@
 // + gap 6px + 「+19.1 cells」(59.34px) = 154.56px —— 差 2.6px，
 // 于是倒计时被截成「Reset 5d 15h 4…」（复现过：clockScroll 89 > clockClient 87）。
 //
+// 2026-09-26 文案改「<窗口> Reset <剩余>」（Neal：用单词 Reset，不用 ↻；窗口词放前面，
+// 没有 5h 限制的行也写自己的窗口），最坏串是「7D Reset 6d 23h 59m」= 105.31px，
+// 轨道 10.5rem → 11.5rem（184px）。新串宽度用同一个探针头量、再按 11 个老串的比值
+// 中位数折算回这张表的老尺子（探针 ~/.hermes/cache/scratch/sm-reset-wording-20260926/）；
+// 表里的数必须同尺，否则预算比较没有意义。
+//
 // 两条契约：
 // 1) meta 轨道必须装得下最坏组合（最长倒计时 + 最长余数后缀）且留余量；宽度表按
 //    formatRemaining / formatSurplus 的真实输出登记 —— 格式一变长（比如加上秒），
@@ -44,7 +50,8 @@ function buildSandbox() {
     .replace(/^import\s.*$/gm, '')
     .replace('export default', 'globalThis.__pluginDefault =')
     // const 声明不挂沙箱全局：显式导出这块断言要用的常量。
-    + '\n;globalThis.__grid = { wide: QUOTA_GRID_COLUMNS, narrow: QUOTA_GRID_COLUMNS_NARROW, breakpoint: NARROW_ROW_BREAKPOINT_PX }\n'
+    + '\n;globalThis.__grid = { wide: QUOTA_GRID_COLUMNS, narrow: QUOTA_GRID_COLUMNS_NARROW, breakpoint: NARROW_ROW_BREAKPOINT_PX, resetClockLabel,'
+    + ' DEFAULT_NAME_TRACK_PX, nameTrackPxFrom, domTextMeasure, wideGridTemplate, narrowGridTemplate, narrowBreakpointPx }\n'
   vm.runInNewContext(`${source}\n`, sandbox, { filename: 'plugin.js' })
   return sandbox
 }
@@ -52,12 +59,47 @@ function buildSandbox() {
 const sandbox = buildSandbox()
 const GRID = sandbox.__grid
 
-// 2026-09-22 探针实测宽度（CSS px；clock = sans 10px + tabular-nums，surplus = mono 8.96px）。
+// 探针实测宽度（CSS px；clock = sans 10px + tabular-nums，surplus = mono 8.96px）。
 // 数字是等宽的（tabular-nums / mono），所以同结构的串同宽；表里按真实输出登记。
+// 2026-09-26 文案 =「<窗口> Reset <剩余>」（窗口词来自行上 windowSeconds，
+// 行上没有 windowSeconds 时就没有窗口词）。窗口只登记该窗真能出现的剩余值：
+// 5H ≤ 5h、7D ≤ 7d、月窗 ≤ 31d；未登记的串 = 没量过 = 这里会红，先跑探针重量。
 const MEASURED_CLOCK_PX = {
+  '5H Reset 0m': 62.97,
+  '5H Reset 59m': 68.99,
+  '5H Reset 4h 59m': 84.05,
+  '5H Reset 5h 0m': 78.03,
+  '5H Reset —': 58.56,
+  '7D Reset 0m': 62.79,
+  '7D Reset 59m': 68.81,
+  '7D Reset 4h 59m': 83.84,
+  '7D Reset 5h 0m': 77.82,
+  '7D Reset 3d 0h 12m': 99.3,
+  '7D Reset 6d 23h 59m': 105.31,
+  '7D Reset 7d 0h 0m': 93.28,
+  '7D Reset —': 58.35,
+  '28D Reset 0m': 68.81,
+  '28D Reset 4h 59m': 89.86,
+  '28D Reset 27d 0h 0m': 105.31,
+  '28D Reset 28d 0h 0m': 105.31,
+  '29D Reset 0m': 68.81,
+  '29D Reset 4h 59m': 89.86,
+  '29D Reset 28d 0h 0m': 105.31,
+  '29D Reset 29d 0h 0m': 105.31,
+  '30D Reset 0m': 68.81,
+  '30D Reset 4h 59m': 89.86,
+  '30D Reset 29d 0h 0m': 105.31,
+  '30D Reset 30d 0h 0m': 105.31,
+  '30D Reset —': 64.38,
+  '31D Reset 0m': 68.81,
+  '31D Reset 4h 59m': 89.86,
+  '31D Reset 30d 0h 0m': 105.31,
+  '31D Reset 31d 0h 0m': 105.31,
+  // 无窗口词的行（行上没有 windowSeconds）沿用 2026-09-22 那批实测值，只补上 59m。
   'Reset 0m': 45.44,
   'Reset 5h 0m': 60.78,
   'Reset 4h 59m': 67.2,
+  'Reset 59m': 52.15,
   'Reset 7d 0h 0m': 76.39,
   'Reset 6d 23h 59m': 89.22,
   'Reset 3d 0h 12m': 82.81,
@@ -106,18 +148,41 @@ test('meta 轨道装得下最坏组合（最长倒计时 + 最长余数后缀）
     '宽度改小前先跑 measure.mjs 重量')
 })
 
+// 每个窗口词配它真能出现的剩余值（5H ≤ 5h、7D ≤ 7d、月窗 ≤ 31d），null = 行上
+// 没有 windowSeconds 的无窗口词形态。
+const CLOCK_KEYS = [
+  ['5H', ['0m', '59m', '4h 59m', '5h 0m']],
+  ['7D', ['0m', '59m', '4h 59m', '5h 0m', '3d 0h 12m', '6d 23h 59m', '7d 0h 0m']],
+  ['28D', ['0m', '4h 59m', '27d 0h 0m', '28d 0h 0m']],
+  ['29D', ['0m', '4h 59m', '28d 0h 0m', '29d 0h 0m']],
+  ['30D', ['0m', '4h 59m', '29d 0h 0m', '30d 0h 0m']],
+  ['31D', ['0m', '4h 59m', '30d 0h 0m', '31d 0h 0m']],
+  [null, ['0m', '59m', '4h 59m', '6d 23h 59m']]
+]
+
 test('倒计时/余数的真实输出都量过宽度（格式加长必须先重量再改列宽）', () => {
+  for (const [key, tails] of CLOCK_KEYS) {
+    for (const tail of tails) {
+      const text = sandbox.resetClockLabel(key, tail)
+      assert.ok(text in MEASURED_CLOCK_PX,
+        `倒计时串「${text}」没量过宽度：文案/格式变了先用探针重量，把新串补进表里，再调 QUOTA_GRID_COLUMNS`)
+    }
+  }
+  assert.ok('7D Reset —' in MEASURED_CLOCK_PX, '没有有效重置时刻的「7D Reset —」也要在表里')
+
+  // 剩余时间串本身由 formatRemaining 生成：它一变长，表里就没有对应的串。
   const clockDeltas = [
     0, 59 * 1000, 4 * HOUR_MS + 59 * MIN_MS, 5 * HOUR_MS, 7 * DAY_MS,
     6 * DAY_MS + 23 * HOUR_MS + 59 * MIN_MS, 3 * DAY_MS + 12 * MIN_MS,
-    28 * DAY_MS, 29 * DAY_MS, 30 * DAY_MS, 31 * DAY_MS
+    27 * DAY_MS, 28 * DAY_MS, 29 * DAY_MS, 30 * DAY_MS, 31 * DAY_MS
   ]
+  const knownTails = new Set(Object.keys(MEASURED_CLOCK_PX)
+    .map(text => text.replace(/^(\d+[HD] )?Reset /, '')))
   for (const delta of clockDeltas) {
-    const text = `Reset ${sandbox.formatRemaining(NOW + delta, NOW)}`
-    assert.ok(text in MEASURED_CLOCK_PX,
-      `倒计时串「${text}」没量过宽度：格式变了就跑 measure.mjs 把新串补进表里，再调 QUOTA_GRID_COLUMNS`)
+    const tail = sandbox.formatRemaining(NOW + delta, NOW)
+    assert.ok(knownTails.has(tail),
+      `剩余时间串「${tail}」没量过宽度：formatRemaining 变了就用探针重量补表`)
   }
-  assert.ok('Reset —' in MEASURED_CLOCK_PX, '无重置时刻的「Reset —」也要在表里')
 
   // 余数后缀的极端：格子数 84（周）/ 90（30 天月）/ 93（31 天月），正负都要能画。
   for (const blocks of [0, 9.9, -9.9, 19.1, -19.1, 84, -84, 90, -90, 93, -93]) {
@@ -141,6 +206,77 @@ test('窄行断点覆盖宽排布局的最小需求（改轨道必须同步断�
 })
 
 // ---------------------------------------------------------------------------
+// 名字列宽：量出来的值必须真的进到渲染里
+// ---------------------------------------------------------------------------
+function wideTemplateOf(rowProps) {
+  const row = sandbox.WeeklyQuotaRow({ subscription: prepaidRow(), now: NOW, quotaPool: [], ...rowProps })
+  return row.props.style.gridTemplateColumns
+}
+
+test('行用面板量出来的名字列宽（不是各自算各自的）', () => {
+  // 两个不同名字的行传同一个值 → 网格模板完全一致（84 格矩阵靠这个跨行对齐）。
+  const shortRow = wideTemplateOf({ nameTrackPx: 120 })
+  assert.match(shortRow, /^7\.5rem 3\.75rem 11\.5rem minmax\(6rem, 1fr\)$/,
+    '传进来的列宽要变成第一轨道（120px = 7.5rem）')
+  const otherRow = sandbox.WeeklyQuotaRow({
+    subscription: prepaidRow({ providerId: 'eta', label: 'ETA' }),
+    now: NOW,
+    quotaPool: [],
+    nameTrackPx: 120
+  }).props.style.gridTemplateColumns
+  assert.equal(otherRow, shortRow, '同一面板里的行走同一个列宽')
+  // 不传（单元渲染）时退回兜底值，不会渲染出空轨道。
+  assert.equal(Number.parseFloat(wideTemplateOf({}).split(' ')[0]) * 16, GRID.DEFAULT_NAME_TRACK_PX)
+})
+
+test('量宽度用的是行上真正显示的名字（含窗口词后缀），PEAK 只在这场高峰里量', () => {
+  const rows = [
+    { label: 'KIMI', windowLabel: '5 hours' },
+    { label: 'GLM', peakHours: { ranges: [[14, 18]] } }
+  ]
+  const spyOn = () => {
+    const seen = []
+    const spy = (text, kind) => {
+      seen.push(`${kind}:${text}`)
+      return text.length * 7
+    }
+    return { seen, spy }
+  }
+  const offPeak = spyOn()
+  sandbox.nameTrackPxFrom(rows, offPeak.spy)
+  assert.ok(offPeak.seen.includes('name:KIMI 5H'), `量到的名字应含窗口词后缀，实际：${offPeak.seen.join(', ')}`)
+  assert.ok(offPeak.seen.includes('name:GLM'), '每个名字都要量')
+  assert.ok(!offPeak.seen.includes('badge:PEAK'), '不在高峰时刻不该去量徽标（列宽不为它留空）')
+
+  const inPeak = spyOn()
+  sandbox.nameTrackPxFrom(rows, inPeak.spy, row => row.label === 'GLM')
+  assert.ok(inPeak.seen.includes('badge:PEAK'), '高峰时刻要把 PEAK 徽标算进列宽')
+})
+
+test('没有 document（测试/SSR）时量不了，退回兜底列宽', () => {
+  assert.equal(GRID.domTextMeasure(), null, '无 document 时必须返回 null 让调用方走兜底')
+})
+
+// 面板里不能有条件 hook（2026-09-26 实际炸过：hook 放在 `if (!rows.length) return` 之后，
+// 数据到达那次渲染多出一个 hook → React error #310 → 错误边界接管，插件显示“损坏”）。
+test('量宽 hook 在任何提前 return 之前，且面板里没有其他后置 hook', () => {
+  const body = pluginSource.slice(
+    pluginSource.indexOf('function SubscriptionMeterBody'),
+    pluginSource.indexOf('function SubscriptionMeterPage')
+  )
+  assert.ok(body.length > 0, 'plugin.js 里应当有 SubscriptionMeterBody')
+  const earlyReturnIndex = body.indexOf('if (!rows.length)')
+  const hookIndex = body.indexOf('useMeasuredNameTrack(')
+  assert.ok(earlyReturnIndex > 0, '面板应当还有“没数据先返回骨架”的分支')
+  assert.ok(hookIndex > 0, '面板应当调用 useMeasuredNameTrack')
+  assert.ok(hookIndex < earlyReturnIndex,
+    'useMeasuredNameTrack 必须在提前 return 之前调用：放在之后会让数据到达那次渲染多一个 hook（#310）')
+  const afterEarlyReturn = body.slice(earlyReturnIndex)
+  assert.equal(afterEarlyReturn.match(/\buse[A-Z]\w*\(/g), null,
+    `提前 return 之后还有 hook 调用，会触发 React #310：${afterEarlyReturn.match(/\buse[A-Z]\w*\(/g)}`)
+})
+
+// ---------------------------------------------------------------------------
 // 渲染：Reset 永不截断，后缀先让步
 // ---------------------------------------------------------------------------
 function collect(node, predicate, found = []) {
@@ -160,7 +296,9 @@ function quotaRow(subscription) {
 
 function clockSpan(subscription) {
   const spans = collect(quotaRow(subscription), node => typeof node.props?.children === 'string'
-    && (node.props.children.startsWith('Reset ') || node.props.children.startsWith('Unauthorized')))
+    && (node.props.children.startsWith('Reset ')
+      || /^\d+[HD] Reset /.test(node.props.children)
+      || node.props.children.startsWith('Unauthorized')))
   assert.equal(spans.length, 1, 'row must render exactly one clock span')
   return spans[0]
 }

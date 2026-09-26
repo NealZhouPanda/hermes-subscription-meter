@@ -73,38 +73,124 @@ function gridTemplateColumns(subscription) {
       : `minmax(0px, ${CELL_SIZE})`
   ).join(' ')
 }
+// >>> grid-budget（tests 按这对标记取这一段源码评估，改内部结构不用改测试的正则）>>>
 // Compact fixed metadata columns keep all 84-cell matrices vertically aligned.
 // 9.5rem 装不下最坏组合：2026-09-22 用 headless 探针按 app 默认字模实测
 // （~/.hermes/cache/scratch/sm-reset-width/measure.mjs），"Reset 5d 15h 45m"
 // 89.2px + 6px gap + "+19.1 cells" 59.3px = 154.6px > 152px，于是倒计时被截成
 // "Reset 5d 15h 4…"；上一个已经挂零余量（"Reset 29d 0h 0m" + "−30.0 cells" = 148.2px）。
-// 10.5rem = 168px 覆盖最坏组合 159.95px（长倒计时 + 三位数余数）并留 ~8px。
-// 改这里要同步 NARROW_ROW_BREAKPOINT_PX 与 tests/reset-column-fit.test.mjs。
-const QUOTA_GRID_COLUMNS = '6.5rem 3.75rem 10.5rem minmax(6rem, 1fr)'
-// Below this row width the single-line tracks can no longer fit their text;
-// rows switch to two lines (text line + full-width matrix) instead of truncating.
-// = wide tracks (6.5 + 3.75 + 10.5) + matrix min 6rem + 3 gaps (0.5rem each)
-//   + row padding (px-1.5 × 2) = 29rem = 464px。
-const QUOTA_GRID_COLUMNS_NARROW = '5.25rem 3.75rem minmax(0, 1fr)'
-const NARROW_ROW_BREAKPOINT_PX = 29 * 16
+// 2026-09-26 文案改「7D Reset 6d 23h 59m」后最坏倒计时 105.31px，
+// 11.5rem = 184px 覆盖最坏组合 178.65px（105.31 + 6 gap + "−93.0 cells" 59.34 + 8 余量）。
+const QUOTA_TRACK_PX = 3.75 * 16
+const META_TRACK_PX = 11.5 * 16
+const METER_TRACK_MIN_PX = 6 * 16
+const ROW_GAP_PX = 8 // gap-2 × 3 段
+const ROW_PADDING_PX = 2 * 6 // px-1.5 两侧
+// 名字列宽不写死（2026-09-26 Neal：名字与余量之间空隙太大 → 按显示出来的最长名字定宽）。
+// 面板拿到数据后量一次当前行的名字，**所有行共用同一个值**（84 格矩阵跨行对齐靠它），
+// 量不到（无 document：测试 / SSR）时退回 DEFAULT_NAME_TRACK_PX。
+const NAME_CELL_DOT_PX = 6 // size-1.5 圆点
+const NAME_CELL_GAP_PX = 8 // gap-2
+const NAME_TRACK_SLACK_PX = 4 // 别贴着边
+const NAME_TRACK_MIN_PX = 48 // 3rem 下限：全是两字名字时也别收成一条缝
+const NAME_TRACK_STEP_PX = 8 // 量出来的值向上取整到 0.5rem，避免渲染抖动
+// 兜底值＝面板里最长的模型名（DEEPSEEK 连圆点实测 83.0px）＋余量。
+const DEFAULT_NAME_TRACK_PX = 5.5 * 16
 
-function quotaRowLayout(containerWidth) {
-  return containerWidth > 0 && containerWidth < NARROW_ROW_BREAKPOINT_PX ? 'narrow' : 'wide'
+const pxToRem = px => `${px / 16}rem`
+const wideGridTemplate = nameTrackPx =>
+  `${pxToRem(nameTrackPx)} 3.75rem 11.5rem minmax(6rem, 1fr)`
+const narrowGridTemplate = nameTrackPx =>
+  `${pxToRem(nameTrackPx)} 3.75rem minmax(0, 1fr)`
+// 断点＝宽排布局的最小需求：固定轨道之和。低于它整行装不下，换两行布局。
+const narrowBreakpointPx = nameTrackPx =>
+  nameTrackPx + QUOTA_TRACK_PX + META_TRACK_PX + METER_TRACK_MIN_PX
+    + 3 * ROW_GAP_PX + ROW_PADDING_PX
+
+// 名字列宽＝按当前行量出来的「最宽一格」，向上取整到 0.5rem。
+// measure(text, kind) 由真实 DOM 提供（名字用名字格同款字模，'badge' 用 PEAK 胶囊）。
+// 只有在**真的显示** PEAK 徽标时才给徽标留位（peakActive(row) 由调用方按当前时刻判定）：
+// 没在高峰 / 没有高峰时刻的 provider 不该替他留空（2026-09-26 Neal 定）。
+function nameTrackPxFrom(rows, measure, peakActive = () => false) {
+  let widest = NAME_TRACK_MIN_PX
+  for (const row of rows) {
+    let need = NAME_CELL_DOT_PX + NAME_CELL_GAP_PX + measure(quotaDisplayName(row), 'name')
+    if (row && peakActive(row)) need += NAME_CELL_GAP_PX + measure('PEAK', 'badge')
+    widest = Math.max(widest, need + NAME_TRACK_SLACK_PX)
+  }
+  return Math.ceil(widest / NAME_TRACK_STEP_PX) * NAME_TRACK_STEP_PX
 }
 
-function useQuotaRowLayout(ref) {
+// 量文字的探针：临时元素用**和真格子一模一样的类名**，量完就摘（不留在 DOM 里）。
+// 用 DOM 而不是 canvas.measureText —— canvas 的 font 不收 rem，还要自己补 letter-spacing。
+function domTextMeasure() {
+  if (typeof document === 'undefined' || !document.body) return null
+  const host = document.createElement('span')
+  host.setAttribute('aria-hidden', 'true')
+  host.style.cssText = 'position:absolute;left:-9999px;top:0;white-space:pre;visibility:hidden;pointer-events:none'
+  const nameProbe = document.createElement('span')
+  nameProbe.className = 'text-[0.65rem] font-semibold tracking-[0.08em]'
+  const badgeProbe = document.createElement('span')
+  badgeProbe.className = 'rounded-full px-1.5 py-px font-mono text-[0.5rem] font-semibold leading-none'
+  badgeProbe.textContent = 'PEAK'
+  host.appendChild(nameProbe)
+  host.appendChild(badgeProbe)
+  document.body.appendChild(host)
+  try {
+    const measure = (text, kind) => {
+      const probe = kind === 'badge' ? badgeProbe : nameProbe
+      probe.textContent = text
+      return probe.getBoundingClientRect().width
+    }
+    measure.dispose = () => host.remove()
+    return measure
+  } catch (error) {
+    host.remove()
+    return null
+  }
+}
+
+const QUOTA_GRID_COLUMNS = wideGridTemplate(DEFAULT_NAME_TRACK_PX)
+const QUOTA_GRID_COLUMNS_NARROW = narrowGridTemplate(DEFAULT_NAME_TRACK_PX)
+const NARROW_ROW_BREAKPOINT_PX = narrowBreakpointPx(DEFAULT_NAME_TRACK_PX)
+
+function quotaRowLayout(containerWidth, breakpointPx = NARROW_ROW_BREAKPOINT_PX) {
+  return containerWidth > 0 && containerWidth < breakpointPx ? 'narrow' : 'wide'
+}
+// <<< grid-budget <<<
+
+function useQuotaRowLayout(ref, breakpointPx = NARROW_ROW_BREAKPOINT_PX) {
   const [layout, setLayout] = useState('wide')
   useEffect(() => {
     const node = ref.current
     if (!node || typeof ResizeObserver !== 'function') return undefined
     const observer = new ResizeObserver(entries => {
       const width = entries[0]?.contentRect?.width ?? 0
-      setLayout(quotaRowLayout(width))
+      setLayout(quotaRowLayout(width, breakpointPx))
     })
     observer.observe(node)
     return () => observer.disconnect()
-  }, [ref])
+  }, [ref, breakpointPx])
   return layout
+}
+
+// 面板级：量一次名字格宽度，所有行共用（换模型/加长名字自己跟上，没人再写死列宽）。
+function useMeasuredNameTrack(rows, now) {
+  const [trackPx, setTrackPx] = useState(DEFAULT_NAME_TRACK_PX)
+  // 依赖用「名字 + 此刻是否在高峰」的签名（行对象每轮轮询都会换新的引用）：
+  // 高峰边界一到就重新量一次，徽标该出现时列宽跟着变。
+  const signature = rows.map(row => `${quotaDisplayName(row)}:${activePeakRule(row, now) ? 1 : 0}`).join('|')
+  useLayoutEffect(() => {
+    const measure = domTextMeasure()
+    if (!measure) return undefined
+    try {
+      setTrackPx(nameTrackPxFrom(rows, measure, row => Boolean(activePeakRule(row, now))))
+    } finally {
+      measure.dispose()
+    }
+    return undefined
+  }, [signature])
+  return trackPx
 }
 
 // 五色图例配色（2026-09-12 Neal 定，色值取自 Neal 截图逐像素取样）：
@@ -322,6 +408,7 @@ function collapseDuplicateQuotaRows(rows) {
   return unique
 }
 
+// >>> display-name（tests 取这一段评估：名字列宽的依赖）>>>
 function quotaDisplayName(subscription) {
   const suffix = compactWindowLabel(subscription.windowLabel)
   return suffix ? `${subscription.label} ${suffix}` : subscription.label
@@ -358,6 +445,7 @@ function compactWindowLabel(windowLabel) {
   // 纯数字后缀没有窗长语义（如「CODEX 5」），不输出。
   return /\d+[HDW]/.test(out) ? out : ''
 }
+// <<< display-name <<<
 
 function formatRemaining(resetAt, now) {
   const remainMs = Math.max(0, Number(resetAt) - now)
@@ -372,12 +460,51 @@ function formatRemaining(resetAt, now) {
   return parts.join(' ')
 }
 
-// Reset 倒计时的取时来源（2026-09-22 下午 Neal 定，当晚被一次运行态安装盖掉、本次恢复）：
-// 有 5 小时短窗就倒计时到短窗的实际重置点，没有五小时限制才倒计时到主窗（周/月）。
-// 短窗在但没有实际重置时刻 → null（显示 —），不拿周重置冒充。判据与画格子同一处
-// （toEpochMillis）：缺失/0/非法都算「没有」。
-function resetCountdownAt(subscription, fiveHourSibling) {
-  return toEpochMillis((fiveHourSibling || subscription)?.resetAt)
+// Reset 倒计时合并版（2026-09-26 Neal 定）：默认在 5H 与主窗（7D/月）两个重置里
+// 显示较近的有效一个；恰好两个都有效时点击可切到另一个（仅内存，不自动轮播）。
+// 有效性唯一判据仍是 toEpochMillis，且必须在未来——已过期的 resetAt 不得显示成
+// 「马上重置」。
+function windowKeyOf(row) {
+  const seconds = Number(row?.windowSeconds)
+  if (!Number.isFinite(seconds) || seconds <= 0) return null
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}H`
+  return `${Math.round(seconds / 86400)}D`
+}
+
+function resetWindowCandidates(subscription, fiveHourSibling, now) {
+  const rows = [subscription, fiveHourSibling].filter(Boolean)
+  const seen = new Set()
+  const candidates = []
+  for (const row of rows) {
+    const key = windowKeyOf(row)
+    if (!key || seen.has(key)) continue
+    const at = toEpochMillis(row.resetAt)
+    // 已过期不算有效候选：不能拿过去的时刻显示「马上重置」。
+    if (at === null || at <= now) continue
+    seen.add(key)
+    candidates.push({ key, at })
+  }
+  return candidates
+}
+
+// preferred = 行内 state（点击切换写入）；命中有效候选就用它，否则自动取
+// 未来较近者。并列（同一时刻）取先列出的主窗候选，保证确定性。
+function selectResetCandidate(candidates, preferred, now) {
+  const valid = candidates.filter(c => c.at > now)
+  if (!valid.length) return null
+  if (preferred) {
+    const hit = valid.find(c => c.key === preferred)
+    if (hit) return hit
+  }
+  return valid[0].at <= (valid[1]?.at ?? Infinity) ? valid[0] : valid[1]
+}
+
+// Reset 倒计时文案（2026-09-26 Neal 定）：写单词 Reset、不用 ↻ 符号，并把窗口词放在
+// 前面（5H / 7D / 30D…）——新用户看一行就知道这个倒计时属于哪个窗口，没有 5h 短窗
+// 的行也一样写自己的窗口。行上没有 windowSeconds 时没有窗口词可写，只留「Reset …」。
+// 宽度预算见 tests/reset-column-fit.test.mjs，改文案必须先量宽。
+function resetClockLabel(key, remainingText) {
+  return `${key ? `${key} ` : ''}Reset ${remainingText}`
 }
 
 // 盈余/亏损时间块：均摊口径 = (已过比例 − 已用比例) × 84 格。
@@ -669,22 +796,33 @@ function WeeklyMeter({ subscription, now, fiveHourSibling }) {
 }
 
 // Weekly quota has its own row structure: name -> remaining quota -> reset -> matrix.
-function WeeklyQuotaRow({ subscription, now, quotaPool }) {
+// nameTrackPx 由面板量出来传进来（所有行同一个值）；单独渲染（测试）时用兜底值。
+function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NAME_TRACK_PX }) {
   const failed = Boolean(subscription.error)
   const unknown = subscription.usedPercent === null || subscription.usedPercent === undefined
   // 配色来自行（后端抄进行）；行上没给就用中性绿。
   const accent = failed ? COLORS.danger : (subscription.accent || COLORS.green)
   const quotaText = failed ? 'ERR' : (unknown ? 'Unknown —' : `${Math.round(100 - subscription.usedPercent)}% left`)
   // 5h 兄弟行（2026-09-09 起）：从全部 quota 行池里找同 providerId 的短窗行。
-  // 两个用途——Reset 倒计时的取时来源（resetCountdownAt）与 WeeklyMeter 的锁定段。
+  // 两个用途——Reset 倒计时的候选来源（resetWindowCandidates）与 WeeklyMeter 的锁定段。
   // 找不到 / 月行 → null：倒计时退回本行（周/月），锁定段不画。
   const fiveHourSibling = (!isMonthlyWindow(subscription) && quotaPool)
     ? findFiveHourSibling(subscription, quotaPool)
     : null
-  const countdownAt = resetCountdownAt(subscription, fiveHourSibling)
+  // 合并版倒计时（2026-09-26）：主窗与 5h 各出一候选，默认显示较近的有效一个；
+  // 恰好两个有效时渲染成 button，点击切到另一窗口（仅本行 state）。
+  const resetCandidates = failed ? [] : resetWindowCandidates(subscription, fiveHourSibling, now)
+  const [preferredWindow, setPreferredWindow] = useState(null)
+  const switchable = resetCandidates.length === 2
+  const countdown = failed ? null : selectResetCandidate(resetCandidates, switchable ? preferredWindow : null, now)
+  // 窗口词用选中候选的窗口；没有有效候选时退回本行自己的窗口（有窗口就是
+  // 「7D Reset time —」，不让「—」失去归属）。
   const clockText = failed
     ? String(subscription.error || 'data unavailable').slice(0, 60)
-    : `Reset ${countdownAt ? formatRemaining(countdownAt, now) : '—'}`
+    : resetClockLabel(
+        countdown?.key ?? windowKeyOf(subscription),
+        countdown ? formatRemaining(countdown.at, now) : '—'
+      )
   const blocks = failed || unknown ? null : surplusBlocks(subscription, now)
   const surplusText = blocks === null ? null : formatSurplus(blocks)
   const surplusTone = surplusText ? (blocks >= 0 ? COLORS.green : COLORS.danger) : null
@@ -694,7 +832,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
     ? `Surplus vs. even-time pacing, in cells: ${blocks >= 0 ? 'positive = saved relative to even pacing' : 'negative = consumed ahead of pacing'}`
     : undefined
   const rowRef = useRef(null)
-  const narrow = useQuotaRowLayout(rowRef) === 'narrow'
+  const narrow = useQuotaRowLayout(rowRef, narrowBreakpointPx(nameTrackPx)) === 'narrow'
 
   const nameCell = jsxs('span', {
     className: 'flex min-w-0 items-center gap-2',
@@ -727,19 +865,32 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
   const metaCell = jsxs('span', {
     className: 'flex min-w-0 items-baseline gap-1.5 tabular-nums',
     children: [
-      jsx('span', {
-        // Reset 是这列的主信息：正常行永不收缩，列装不下时先牺牲后面的余数后缀
-        // （2026-09-22 Neal：有的 Reset 显示不全）。失败行的 error 摘要是长文本，
-        // 仍用省略号收住（全文在行的 title 里）。列宽预算见 QUOTA_GRID_COLUMNS。
-        className: failed ? 'min-w-0 truncate' : 'shrink-0',
-        style: { fontSize: '0.625rem', color: 'var(--ui-text-tertiary)' },
-        title: failed ? undefined : (fiveHourSibling
-          ? 'Time remaining until the 5-hour window resets'
-          : isMonthlyWindow(subscription)
-            ? 'Time remaining until the monthly window resets'
-            : 'Time remaining until the weekly cycle resets'),
-        children: clockText
-      }),
+      switchable
+        // 两个有效候选 → 原生 button（Enter/Space 可达），点击切到另一窗口；
+        // state 只在本行，不写配置/storage。选中窗到期后 selectResetCandidate
+        // 自动回最近，无需清理 state。
+        ? jsx('button', {
+            type: 'button',
+            className: 'shrink-0 cursor-pointer rounded font-[inherit]',
+            style: { fontSize: '0.625rem', color: 'var(--ui-text-tertiary)', background: 'none', border: 'none', padding: 0 },
+            title: 'Click to switch to the other reset window',
+            onClick: () => setPreferredWindow(preferred =>
+              preferred === resetCandidates[0].key ? resetCandidates[1].key : resetCandidates[0].key),
+            children: clockText
+          })
+        : jsx('span', {
+            // Reset 是这列的主信息：正常行永不收缩，列装不下时先牺牲后面的余数后缀
+            // （2026-09-22 Neal：有的 Reset 显示不全）。失败行的 error 摘要是长文本，
+            // 仍用省略号收住（全文在行的 title 里）。列宽预算见 QUOTA_GRID_COLUMNS。
+            className: failed ? 'min-w-0 truncate' : 'shrink-0',
+            style: { fontSize: '0.625rem', color: 'var(--ui-text-tertiary)' },
+            title: failed ? undefined : (fiveHourSibling
+              ? 'Time remaining until the 5-hour window resets'
+              : isMonthlyWindow(subscription)
+                ? 'Time remaining until the monthly window resets'
+                : 'Time remaining until the weekly cycle resets'),
+            children: clockText
+          }),
       surplusText
         ? jsx('span', {
             className: 'min-w-0 truncate font-mono text-[0.56rem]',
@@ -751,7 +902,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
         : null
     ]
   })
-  // 5h 兄弟行已在函数开头算好（resetCountdownAt 与 WeeklyMeter 共用同一个）。
+  // 5h 兄弟行已在函数开头算好（resetWindowCandidates 与 WeeklyMeter 共用同一个）。
   // M5（定稿 §1「windowSeconds … 缺→不画轴」）：无窗行不画矩阵，只留文字；
   // 行内缺口文案（gap 通道）口径待 Neal 认可，本轮不加。
   const meterCell = failed || !subscription.windowSeconds ? null : (unknown ? null : jsx(WeeklyMeter, { subscription, now, fiveHourSibling }))
@@ -765,7 +916,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
       children: [
         jsxs('div', {
           className: 'grid min-w-0 items-center gap-2',
-          style: { display: 'grid', gridTemplateColumns: QUOTA_GRID_COLUMNS_NARROW },
+          style: { display: 'grid', gridTemplateColumns: narrowGridTemplate(nameTrackPx) },
           children: [nameCell, quotaCell, metaCell]
         }),
         // WeeklyMeter 根节点的 flex 属性在网格里是惰性的，但到了纵向 flex 容器
@@ -779,7 +930,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool }) {
     ref: rowRef,
     title: failed ? String(subscription.error || '') : undefined,
     className: 'grid min-w-0 items-center gap-2 overflow-hidden rounded px-1.5 py-0 text-left',
-    style: { display: 'grid', gridTemplateColumns: QUOTA_GRID_COLUMNS, minHeight: '1.2rem' },
+    style: { display: 'grid', gridTemplateColumns: wideGridTemplate(nameTrackPx), minHeight: '1.2rem' },
     children: [nameCell, quotaCell, metaCell, meterCell]
   })
 }
@@ -788,6 +939,57 @@ const CONNECTION_LABELS = {
   unknown: 'Not checked yet', disabled: 'Hidden · not fetched', unconfigured: 'Not configured',
   ok: 'Last check succeeded', partial: 'Partial data available', auth_error: 'Auth or permission failed', request_error: 'Request failed',
   unrecognized: 'API key not recognized', no_fetcher: 'No fetcher available'
+}
+
+const WHOLE_HELP_LINES = [
+  { text: '84 cells align quota with cycle time; each cell = window / 84 (a 7-day window = 2 hours).' },
+  { swatch: COLORS.green, text: 'Green: remaining available quota' },
+  { swatch: COLORS.greenLocked, text: 'Dark green: remaining quota locked by the 5h window' },
+  { swatch: COLORS.blue, text: 'Sky blue: surplus available quota' },
+  { swatch: COLORS.blueLocked, text: 'Dark blue: surplus quota locked by the 5h window' },
+  { swatch: COLORS.orange, text: 'Orange: over-consumed quota' },
+  { text: 'The dot by a plan name distinguishes providers — not cell colors or balance status.' },
+  { text: '"N% left" = remaining quota (not used). "Reset" = time until the next cycle.' },
+  { text: '"Unknown —" = no quota percentage returned, so no surplus is shown.' },
+  { text: '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.' }
+]
+
+// 五色图例（2026-09-12 Neal 定，与 Neal 截图一致，一条一行）：色块对准那一行。
+function UsageHelpSection() {
+  return jsxs('div', {
+    className: 'mt-3 rounded-md border border-(--ui-stroke-secondary) p-3',
+    children: [
+      jsx('h2', {
+        className: 'text-sm font-medium text-foreground',
+        children: '使用说明'
+      }),
+      jsx('div', {
+        // 可滚动：说明条目多时不挤坏设置窗口（maxHeight + overflowY auto）。
+        style: { marginTop: 8, maxHeight: 260, overflowY: 'auto', fontSize: '0.72rem', lineHeight: 1.5, color: 'var(--ui-text-secondary)' },
+        children: WHOLE_HELP_LINES.map(item =>
+          jsxs('span', {
+            style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 },
+            children: [
+              item.swatch
+                ? jsx('span', {
+                    style: {
+                      display: 'inline-block',
+                      flexShrink: 0,
+                      width: 6,
+                      height: 6,
+                      borderRadius: 2,
+                      backgroundColor: item.swatch
+                    },
+                    'aria-hidden': true
+                  })
+                : null,
+              item.text
+            ]
+          }, item.text)
+        )
+      })
+    ]
+  })
 }
 
 function ProviderSettingsPanel({ rest }) {
@@ -984,154 +1186,22 @@ function ProviderSettingsPanel({ rest }) {
             ]
           }, provider.id)
         )
-      })
+      }),
+      jsx(UsageHelpSection, {})
     ]
   })
 }
 
-
-// Independent mouse-following explanation tooltip. Renders nothing until the
-// pointer is inside the meter container; pointer-events:none so it never
-// steals the cursor (no enter/leave flicker). All visual styles are inline
-// (no runtime-compiled Tailwind classes) and the rect — not the pointer —
-// is kept inside the viewport: width min(TOOLTIP_PREFERRED_WIDTH_PX, viewport-24), pointer offset
-// +16, flipped left/up when the bottom-right corner would overflow.
-// 首选宽度（2026-09-11 Neal 定「色块说明一行完整不要过行」）：以最长图例行
-// （0.56rem 字号）单行放得下为准；窄视口仍由 placeTooltipRect 收缩兜底。
-const TOOLTIP_PREFERRED_WIDTH_PX = 340
-
-const TOOLTIP_MARGIN_PX = 12
-const TOOLTIP_POINTER_OFFSET_PX = 16
-const TOOLTIP_MAX_HEIGHT_PX = 260
-
-function placeTooltipRect(pointerX, pointerY, width, height, viewportWidth, viewportHeight) {
-  const maxWidth = Math.min(width, Math.max(TOOLTIP_MARGIN_PX, viewportWidth - TOOLTIP_MARGIN_PX * 2))
-  const maxHeight = Math.min(height || TOOLTIP_MAX_HEIGHT_PX, TOOLTIP_MAX_HEIGHT_PX)
-  const maxLeft = Math.max(TOOLTIP_MARGIN_PX, viewportWidth - TOOLTIP_MARGIN_PX - maxWidth)
-  const maxTop = Math.max(TOOLTIP_MARGIN_PX, viewportHeight - TOOLTIP_MARGIN_PX - maxHeight)
-  const preferredX = pointerX + TOOLTIP_POINTER_OFFSET_PX
-  const preferredY = pointerY + TOOLTIP_POINTER_OFFSET_PX
-  // Flip left / above the pointer when the rect would overflow bottom-right.
-  const left = preferredX + maxWidth > viewportWidth - TOOLTIP_MARGIN_PX
-    ? clamp(pointerX - TOOLTIP_POINTER_OFFSET_PX - maxWidth, TOOLTIP_MARGIN_PX, maxLeft)
-    : clamp(preferredX, TOOLTIP_MARGIN_PX, maxLeft)
-  const top = preferredY + maxHeight > viewportHeight - TOOLTIP_MARGIN_PX
-    ? clamp(pointerY - TOOLTIP_POINTER_OFFSET_PX - maxHeight, TOOLTIP_MARGIN_PX, maxTop)
-    : clamp(preferredY, TOOLTIP_MARGIN_PX, maxTop)
-  return { left, top, maxWidth, maxHeight }
-}
-
-function SubscriptionMeterTooltip({ visible, x, y, viewportWidth, viewportHeight, width, height, tooltipRef }) {
-  if (!visible) return null
-  const rect = placeTooltipRect(
-    Number(x) || 0,
-    Number(y) || 0,
-    Number(width) || TOOLTIP_PREFERRED_WIDTH_PX,
-    Number(height) || 0,
-    Number(viewportWidth) || 0,
-    Number(viewportHeight) || 0
-  )
-  // 五色图例（2026-09-12 Neal 定，与 Neal 截图一致，一条一行）：
-  // 可用=浅、受限=深（受限=5h 短窗锁定，不是高峰）；灰 track 截图未画、矩阵仍保留；
-  // 高峰不写进色块图例。
-  const legendItems = [
-    { color: COLORS.green, text: 'Green: remaining available quota' },
-    { color: COLORS.greenLocked, text: 'Dark green: remaining quota locked by the 5h window' },
-    { color: COLORS.blue, text: 'Sky blue: surplus available quota' },
-    { color: COLORS.blueLocked, text: 'Dark blue: surplus quota locked by the 5h window' },
-    { color: COLORS.orange, text: 'Orange: over-consumed quota' }
-  ]
-  return jsxs('div', {
-    'data-meter-tooltip': true,
-    'role': 'tooltip',
-    ref: tooltipRef,
-    style: {
-      position: 'fixed',
-      left: rect.left,
-      top: rect.top,
-      width: 'max-content',
-      maxWidth: rect.maxWidth,
-      maxHeight: rect.maxHeight,
-      overflowY: 'auto',
-      overflowWrap: 'anywhere',
-      pointerEvents: 'none',
-      zIndex: 50,
-      // 实底（2026-09-10 Neal 定「浮窗不要透明背景」）：--ui-bg-primary 是
-      // accent 16% + transparent 74% 的填充色，透字；App 浮层标准底为
-      // --ui-bg-elevated（浅色近白/深色 #161618 实底），与 App popover 同源。
-      backgroundColor: 'var(--ui-bg-elevated)',
-      color: 'var(--ui-text-secondary, inherit)',
-      border: '1px solid var(--ui-stroke-secondary)',
-      borderRadius: '4px',
-      padding: '8px',
-      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.25)',
-      fontSize: '0.56rem',
-      lineHeight: 1.4
-    },
-    children: [
-      jsx('div', { children: '84 cells align quota with cycle time; each cell = window / 84 (a 7-day window = 2 hours).' }),
-      // 图例（2026-09-11 Neal 定「一行完整，不要过行，色块对准那一行」）：
-      // 一条说明独占一行（block + nowrap），色块 flex-shrink 0 与本行文字垂直居中；
-      // 浮窗首选宽 340px 保证最长一条单行放下。
-      ...legendItems.map(item =>
-        jsxs('span', {
-          style: { display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' },
-          children: [
-            jsx('span', {
-              style: {
-                display: 'inline-block',
-                flexShrink: 0,
-                width: 6,
-                height: 6,
-                borderRadius: 2,
-                backgroundColor: item.color
-              },
-              'aria-hidden': true
-            }),
-            item.text
-          ]
-        }, item.text)
-      ),
-      jsx('div', { children: 'The dot by a plan name distinguishes providers — not cell colors or balance status.' }),
-      jsx('div', { children: '"N% left" = remaining quota (not used). "Reset" = time until the next cycle.' }),
-      jsx('div', { children: '"Unknown —" = no quota percentage returned, so no surplus is shown.' }),
-      jsx('div', { children: '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.' })
-    ]
-  })
-}
 
 function SubscriptionMeterBody({ rest }) {
   const [rows, setRows] = useState([])
   const [loadState, setLoadState] = useState('loading')
   const [lastSuccessAt, setLastSuccessAt] = useState(null)
   const [now, setNow] = useState(() => Date.now())
-  const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0 })
-  const [viewport, setViewport] = useState(() => ({
-    width: typeof window !== 'undefined' ? window.innerWidth : 0,
-    height: typeof window !== 'undefined' ? window.innerHeight : 0
-  }))
-  const tooltipRef = useRef(null)
   // 活动 profile：切了就重取（见下方 effect）。useValue 必须无条件调用。
   const activeProfile = useValue(host.state.profile)
   const aliveRef = useRef(true)
   const succeededRef = useRef(false)
-
-  useEffect(() => {
-    const onResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight })
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-
-  // Measure the real tooltip rect so placement accounts for actual size.
-  useLayoutEffect(() => {
-    const node = tooltipRef.current
-    if (!node) return
-    const width = Math.ceil(node.getBoundingClientRect().width) || TOOLTIP_PREFERRED_WIDTH_PX
-    const height = Math.ceil(node.getBoundingClientRect().height)
-    setTooltip(state => (state.width !== width || state.height !== height)
-      ? { ...state, width, height }
-      : state)
-  }, [tooltip.visible, tooltip.x, tooltip.y, viewport.width, viewport.height])
 
   // 余额条行首竖线判定（2026-09-11 Neal 定「分割线只出现在同一行 2 个余额条中间」）：
   // flex-wrap 换行由实际宽度决定，渲染前无法知道某条目是否落到行首；这里读真实
@@ -1196,47 +1266,28 @@ function SubscriptionMeterBody({ rest }) {
     return () => clearInterval(clock)
   }, [])
 
-  const tooltipHandlers = {
-    onPointerEnter: event => {
-      const x = Number(event?.clientX) || 0
-      const y = Number(event?.clientY) || 0
-      setTooltip(state => ({ ...state, visible: true, x, y }))
-    },
-    onPointerMove: event => {
-      const x = Number(event?.clientX) || 0
-      const y = Number(event?.clientY) || 0
-      setTooltip(state => (state.x !== x || state.y !== y)
-        ? { ...state, visible: true, x, y }
-        : state)
-    },
-    onPointerLeave: () => setTooltip(state => (state.visible ? { ...state, visible: false } : state))
-  }
+  // 量宽 hook 必须排在下面那个「没数据先返回骨架」的 return 之前：hook 一旦在提前 return
+  // 之后调用，数据到达那次渲染就会多出一个 hook → React error #310 → 错误边界接管，
+  // 整个面板显示为损坏（2026-09-26 实际炸过一次）。行排序等纯计算跟着一起上移。
+  const displayRows = orderRowsForDisplay(rows, now)
+  const quotaPool = displayRows.filter(r => r.kind === 'quota')
+  // 名字列宽：按当前 quota 行的名字量一次，所有行共用（换数据自己跟上）。
+  const nameTrackPx = useMeasuredNameTrack(quotaPool, now)
 
   if (!rows.length) {
     return jsx('div', {
       className: 'flex h-full items-center border-t border-(--ui-stroke-secondary) px-3',
-      ...tooltipHandlers,
-      children: [
-        jsx('span', {
-          className: 'text-[0.6rem] tracking-[0.08em] text-(--ui-text-quaternary)',
-          children: loadState === 'error'
-            ? 'SUBSCRIPTION DATA UNAVAILABLE'
-            : loadState === 'ready'
-              ? 'NO ENABLED QUOTA PROVIDERS'
-              : 'LOADING SUBSCRIPTIONS…'
-        }),
-        jsx(SubscriptionMeterTooltip, {
-          ...tooltip,
-          viewportWidth: viewport.width,
-          viewportHeight: viewport.height,
-          tooltipRef
-        })
-      ]
+      children: jsx('span', {
+        className: 'text-[0.6rem] tracking-[0.08em] text-(--ui-text-quaternary)',
+        children: loadState === 'error'
+          ? 'SUBSCRIPTION DATA UNAVAILABLE'
+          : loadState === 'ready'
+            ? 'NO ENABLED QUOTA PROVIDERS'
+            : 'LOADING SUBSCRIPTIONS…'
+      })
     })
   }
 
-  const displayRows = orderRowsForDisplay(rows, now)
-  const quotaPool = displayRows.filter(r => r.kind === 'quota')
   const zones = splitBoardRows(displayRows)
   const balanceRows = zones.balance
   const staleBanner = loadState === 'stale'
@@ -1247,7 +1298,8 @@ function SubscriptionMeterBody({ rest }) {
       key: `${prefix}-${subscription.id || index}`,
       subscription,
       now,
-      quotaPool
+      quotaPool,
+      nameTrackPx
     })
   )
   const zoneDivider = key => jsx('div', {
@@ -1261,7 +1313,6 @@ function SubscriptionMeterBody({ rest }) {
   return jsxs('div', {
     className: 'flex h-full min-w-0 flex-col gap-y-1 overflow-y-auto border-t border-(--ui-stroke-secondary) px-2 py-1',
     style: { rowGap: 6, paddingTop: 8, paddingBottom: 8 },
-    ...tooltipHandlers,
     children: [
       staleBanner
         ? jsx('div', {
@@ -1324,13 +1375,7 @@ function SubscriptionMeterBody({ rest }) {
               }, `subscription-${subscription.id || index}`)
             )
           })
-        : null,
-      jsx(SubscriptionMeterTooltip, {
-        ...tooltip,
-        viewportWidth: viewport.width,
-        viewportHeight: viewport.height,
-        tooltipRef
-      })
+        : null
     ]
   })
 }

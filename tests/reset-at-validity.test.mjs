@@ -197,8 +197,10 @@ test('实况：Command Code 有真实 resetAt 后，时间轴恢复（蓝只出�
 })
 
 // ---------------------------------------------------------------------------
-// 5) Reset 倒计时的取时来源（2026-09-22 下午 Neal 定；当晚被一次运行态安装盖掉，本轮恢复）
-//    —— 有 5h 短窗就用短窗的重置点；短窗在但没重置时刻显示 —，不拿周重置冒充。
+// 5) Reset 倒计时的取时来源（2026-09-26 改合并规则）：主窗与 5h 各出一候选，
+//    默认显示未来较近的有效一个；文案是「<窗口> Reset <剩余>」（单词 Reset，不用 ↻），
+//    找不到 5h 短窗的行也照写自己的窗口词（周 7D / 月 30D…）；
+//    有效性判据仍是 toEpochMillis（缺失/0/过期一律不算）。
 // ---------------------------------------------------------------------------
 function clockTextOf(sandboxInstance, subscription, quotaPool) {
   const element = sandboxInstance.WeeklyQuotaRow({ subscription, now: NOW, quotaPool })
@@ -207,42 +209,43 @@ function clockTextOf(sandboxInstance, subscription, quotaPool) {
     if (node === null || node === undefined || typeof node !== 'object') return
     if (Array.isArray(node)) return node.forEach(walk)
     const children = node.props?.children
-    if (typeof children === 'string' && children.startsWith('Reset ')) found = children
+    if (typeof children === 'string'
+      && (children.startsWith('Reset ') || /^\d+[HD] Reset /.test(children))) found = children
     walk(children)
   }
   walk(element)
-  assert.ok(found, 'row must render a Reset label')
+  assert.ok(found, 'row must render a Reset/countdown label')
   return found
 }
 
 const HOUR_MS = 3600 * 1000
 
-test('倒计时取时：有 5h 短窗 → 倒计时到短窗的重置点（不是周重置）', () => {
+test('倒计时取时：主窗与 5h 都有效 → 显示未来较近的 5H，带窗口词', () => {
   const weekly = prepaidRow({ providerId: 'zeta', resetAt: NOW + 3 * 24 * HOUR_MS })
   const five = { ...prepaidRow({ providerId: 'zeta', resetAt: NOW + 2 * HOUR_MS }), role: 'burst', windowSeconds: 18000 }
   // 非左侧的 0 保留（格式规则：只去最左侧连着的 0），2h 0m 是对的。
-  assert.equal(clockTextOf(sandbox, weekly, [weekly, five]), 'Reset 2h 0m')
+  assert.equal(clockTextOf(sandbox, weekly, [weekly, five]), '5H Reset 2h 0m')
 })
 
-test('倒计时取时：短窗在但没有实际重置时刻 → —，不拿周重置冒充', () => {
+test('倒计时取时：短窗在但没有有效重置时刻 → 只剩主窗候选 7D（不可切换）', () => {
   const weekly = prepaidRow({ providerId: 'zeta', resetAt: NOW + 3 * 24 * HOUR_MS })
   const five = { ...prepaidRow({ providerId: 'zeta', resetAt: null }), role: 'burst', windowSeconds: 18000 }
-  assert.equal(clockTextOf(sandbox, weekly, [weekly, five]), 'Reset —')
+  assert.equal(clockTextOf(sandbox, weekly, [weekly, five]), '7D Reset 3d 0h 0m')
   const zeroed = { ...five, resetAt: 0 }
-  assert.equal(clockTextOf(sandbox, weekly, [weekly, zeroed]), 'Reset —')
+  assert.equal(clockTextOf(sandbox, weekly, [weekly, zeroed]), '7D Reset 3d 0h 0m')
 })
 
-test('倒计时取时：没有 5h 短窗 → 用本行（周）的重置点', () => {
+test('倒计时取时：没有 5h 短窗 → 用本行的重置点，窗口词照写（周 7D / 月 30D）', () => {
   const weekly = prepaidRow({ providerId: 'zeta', resetAt: NOW + 3 * 24 * HOUR_MS })
-  assert.equal(clockTextOf(sandbox, weekly, [weekly]), 'Reset 3d 0h 0m')
+  assert.equal(clockTextOf(sandbox, weekly, [weekly]), '7D Reset 3d 0h 0m')
   // 月行不参与短窗配对（月行没有 5h 兄弟），用自己的重置点。
   const monthly = prepaidRow({ providerId: 'zeta', windowSeconds: 30 * 86400, resetAt: NOW + 10 * 24 * HOUR_MS })
-  assert.equal(clockTextOf(sandbox, monthly, [monthly]), 'Reset 10d 0h 0m')
+  assert.equal(clockTextOf(sandbox, monthly, [monthly]), '30D Reset 10d 0h 0m')
 })
 
 test('倒计时取时：本行也没有重置时刻 → —（缺失不编造）', () => {
   const weekly = prepaidRow({ providerId: 'zeta', resetAt: null })
-  assert.equal(clockTextOf(sandbox, weekly, [weekly]), 'Reset —')
+  assert.equal(clockTextOf(sandbox, weekly, [weekly]), '7D Reset —')
 })
 
 // ---------------------------------------------------------------------------

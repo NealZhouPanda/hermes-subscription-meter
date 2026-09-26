@@ -1,6 +1,6 @@
 // Readability regression: real render tree (vm executes plugin.js) asserting
 // English labels, surplus unit/meaning, no surplus on unknown/failed rows,
-// and the mouse-following tooltip subtree replacing the old details legend.
+// and the whole help text living in the settings panel.
 // Reuses the whole-source transform approach of data-credibility.test.mjs;
 // network is fully in-memory fakes.
 import assert from 'node:assert/strict'
@@ -154,7 +154,7 @@ test('balance labels are Balance/Today/7d/30d', async () => {
   assert.ok(!text.includes('余额'), 'no Chinese balance label may remain')
 })
 
-test('legend is a mouse-following tooltip on the meter container, not a details row', async () => {
+test('whole-help legend moved to the settings panel; no hover tooltip on the meter container', async () => {
   const sandbox = buildSandbox({ responses: [quotaRowPayload(WEEK_AHEAD_RESET)] })
   renderBody(sandbox)
   await flush(); await flush()
@@ -162,77 +162,14 @@ test('legend is a mouse-following tooltip on the meter container, not a details 
   assert.ok(!nodes.some(node => node.type === 'details'), 'no details/summary legend may remain')
   assert.ok(!nodes.some(node => node.type === 'summary'), 'no summary may remain')
 
-  // The meter body container must carry the pointer handlers for the tooltip.
+  // 容器不挂整体说明的 pointer 追踪 handlers。
   const body = renderBody(sandbox)
-  assert.ok(typeof body.props.onPointerEnter === 'function', 'container must react to pointerenter')
-  assert.ok(typeof body.props.onPointerMove === 'function', 'container must track pointermove')
-  assert.ok(typeof body.props.onPointerLeave === 'function', 'container must hide the tooltip on pointerleave')
-
-  // Tooltip component subtree exists in source and is hidden until hover.
-  const tooltip = sandbox.SubscriptionMeterTooltip
-  assert.ok(typeof tooltip === 'function', 'an independent tooltip component must exist')
-  const hidden = collect(tooltip({ visible: false, x: 0, y: 0 }))
-  assert.ok(!textOf(hidden), 'tooltip must render nothing while not visible')
-  const shown = collect(tooltip({ visible: true, x: 40, y: 40, viewportWidth: 1000, viewportHeight: 800 }))
-  const tipText = textOf(shown)
-  assert.ok(tipText.includes('84 cells'), 'tooltip must explain the 84-cell matrix')
-  assert.ok(tipText.includes('2 hours'), 'tooltip must state the weekly 2h cell duration')
-
-  // Inline styles only (no runtime-compiled Tailwind) with real background.
-  const tipNode = shown.find(node => node.props['data-meter-tooltip'])
-  assert.ok(tipNode, 'tooltip root must carry data-meter-tooltip')
-  const style = tipNode.props.style
-  assert.equal(style.pointerEvents, 'none', 'tooltip must not intercept pointers')
-  assert.equal(style.position, 'fixed', 'tooltip must be fixed-positioned')
-  // 实底断言（2026-09-10 Neal 定「浮窗不要透明背景」）：--ui-bg-primary 实为
-  // accent 16% + transparent 74% 的填充色（透字），App 浮层标准实底是 --ui-bg-elevated。
-  assert.equal(style.backgroundColor, 'var(--ui-bg-elevated)', 'tooltip background must be the opaque elevated surface var (inline)')
-  assert.ok(style.border && style.padding && style.boxShadow && style.zIndex, 'border/padding/shadow/zIndex must be inline styles')
-  assert.ok(!tipNode.props.className, 'tooltip must not rely on new Tailwind classes')
-
-  // 五色图例（2026-09-12 Neal 定）：一条一行，色值=截图取样；
-  // 高峰不写进色块图例。
-  const legendSwatches = [
-    [COLORS_OF.green, 'Green: remaining available quota'],
-    [COLORS_OF.greenLocked, 'Dark green: remaining quota locked by the 5h window'],
-    [COLORS_OF.blue, 'Sky blue: surplus available quota'],
-    [COLORS_OF.blueLocked, 'Dark blue: surplus quota locked by the 5h window'],
-    [COLORS_OF.orange, 'Orange: over-consumed quota']
-  ]
-  for (const [color, text] of legendSwatches) {
-    const swatch = shown.find(node =>
-      node.props?.style?.backgroundColor === color && node.props['aria-hidden'])
-    assert.ok(swatch, `tooltip must render a swatch with the real color ${color}`)
-    assert.ok(tipText.includes(text), `tooltip legend must include 「${text}」`)
-  }
-  assert.ok(!tipText.includes('高峰') && !/peak/i.test(tipText),
-    'peak must not appear in the color-block legend')
-  assert.ok(/Remaining/i.test(tipText), 'tooltip must explain remaining%')
-  assert.ok(/Reset/i.test(tipText), 'tooltip must explain the reset countdown')
-  assert.ok(/surplus/i.test(tipText), 'tooltip must explain surplus sign')
-  assert.ok(/Unknown/i.test(tipText), 'tooltip must explain the unknown marker')
-  assert.ok(tipText.includes('ERR'), 'tooltip must explain the error marker')
-
-  // Rect-based placement: the whole box (not just the pointer) stays inside
-  // the viewport, offset +16 from the pointer, flipping left/up at edges.
-  const place = sandbox.placeTooltipRect
-  assert.ok(typeof place === 'function', 'rect placement helper must exist')
-
-  // Parent agent's browser edge cases: 600/1000/360-wide, 500-tall viewports,
-  // pointer near the bottom-right (width-5, 295) → the rect must fit fully.
-  for (const [vw, vh, px, py] of [[600, 500, 595, 295], [1000, 500, 995, 295], [360, 500, 355, 295], [360, 500, 10, 10]]) {
-    const r = place(px, py, 288, 200, vw, vh)
-    assert.ok(r.left >= 12, `left must keep 12px margin (vw=${vw})`)
-    assert.ok(r.left + r.maxWidth <= vw - 12, `right edge must fit (vw=${vw})`)
-    assert.ok(r.top >= 12, `top must keep 12px margin (vw=${vw})`)
-    assert.ok(r.top + r.maxHeight <= vh - 12, `bottom edge must fit (vw=${vw})`)
-    assert.ok(r.maxWidth <= Math.min(288, vw - 24), `width must be min(288, viewport-24) (vw=${vw})`)
-  }
-  // Pointer offset when there is room.
-  const open = place(10, 10, 288, 200, 1000, 800)
-  assert.equal(open.left, 26, 'tooltip sits 16px right of the pointer when room allows')
-  assert.equal(open.top, 26, 'tooltip sits 16px below the pointer when room allows')
-  assert.ok(typeof style.maxWidth === 'number', 'tooltip must cap its width for narrow windows')
+  assert.equal(body.props.onPointerEnter, undefined, 'whole-help hover entry must be gone from the container')
+  assert.equal(body.props.onPointerMove, undefined, 'whole-help hover tracking must be gone from the container')
+  assert.equal(body.props.onPointerLeave, undefined, 'whole-help hover hide must be gone from the container')
+  assert.ok(!nodes.some(node => node.props?.['data-meter-tooltip']), 'tooltip subtree must be gone from the body')
+  assert.ok(typeof sandbox.SubscriptionMeterTooltip !== 'function', 'whole-help tooltip component must be gone')
+  assert.ok(typeof sandbox.placeTooltipRect !== 'function', 'rect placement helper must be gone')
 
   // weeklyCell 五色契约 spot checks: usedPercent=50 → first 42 cells quotaGone; 72 cells elapsed
   const sub = { usedPercent: 50, resetAt: WEEK_AHEAD_RESET }
@@ -337,21 +274,50 @@ test('settings save failure notifies a fixed safe message, never raw error text'
 })
 
 test('legend explains cell duration uniformly (84 cells, 2 hours per cell)', async () => {
-  const sandbox = buildSandbox({
-    responses: [() => ({
-      rows: [
-        { id: 'codex:session', providerId: 'codex', label: 'CODEX', kind: 'quota', windowLabel: 'Session', windowSeconds: 5 * 60 * 60, role: 'burst', usedPercent: 20, resetAt: WEEK_AHEAD_RESET },
-        { id: 'glm', providerId: 'glm', label: 'GLM', kind: 'quota', usedPercent: 10, resetAt: WEEK_AHEAD_RESET }
-      ]
-    })]
-  })
-  renderBody(sandbox)
-  await flush(); await flush()
-  const tooltip = sandbox.SubscriptionMeterTooltip
-  const tipText = textOf(collect(tooltip({ visible: true, x: 10, y: 10, viewportWidth: 1000, viewportHeight: 800 })))
-  assert.ok(tipText.includes('84 cells'), 'cell duration must reference the 84-cell matrix')
-  assert.ok(tipText.includes('2 hours'), 'each cell must be called out as 2 hours')
-  assert.ok(/provider/i.test(tipText), 'provider dot vs matrix color distinction must be present')
+  // 说明原文在设置窗口「使用说明」分区，不挂 tooltip。
+  const sandbox = buildSandbox({ responses: [quotaRowPayload(WEEK_AHEAD_RESET)] })
+  sandbox.__resetHooksState()
+  const nodes = collect(sandbox.ProviderSettingsPanel({ rest: sandbox.__ctxRest }))
+  const panelText = textOf(nodes)
+  assert.ok(panelText.includes('84 cells'), 'cell duration must reference the 84-cell matrix')
+  assert.ok(panelText.includes('2 hours'), 'each cell must be called out as 2 hours')
+  assert.ok(/provider/i.test(panelText), 'provider dot vs matrix color distinction must be present')
+  // 原 10 条整体说明原文（与设置窗口「使用说明」分区一致）。
+  const WHOLE_HELP_TEXTS = [
+    '84 cells align quota with cycle time; each cell = window / 84 (a 7-day window = 2 hours).',
+    'Green: remaining available quota',
+    'Dark green: remaining quota locked by the 5h window',
+    'Sky blue: surplus available quota',
+    'Dark blue: surplus quota locked by the 5h window',
+    'Orange: over-consumed quota',
+    'The dot by a plan name distinguishes providers — not cell colors or balance status.',
+    '"N% left" = remaining quota (not used). "Reset" = time until the next cycle.',
+    '"Unknown —" = no quota percentage returned, so no surplus is shown.',
+    '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.'
+  ]
+  // 五色图例：设置说明里每条文字须配真实色值色块，一一对应。
+  const SWATCH_CONTRACT = [
+    [COLORS_OF.green, 'Green: remaining available quota'],
+    [COLORS_OF.greenLocked, 'Dark green: remaining quota locked by the 5h window'],
+    [COLORS_OF.blue, 'Sky blue: surplus available quota'],
+    [COLORS_OF.blueLocked, 'Dark blue: surplus quota locked by the 5h window'],
+    [COLORS_OF.orange, 'Orange: over-consumed quota']
+  ]
+  for (const [color, text] of SWATCH_CONTRACT) {
+    const line = nodes.find(node =>
+      node.type === 'span' &&
+      textOf([node]).includes(text) &&
+      node.props.children?.[0]?.props?.style?.backgroundColor === color)
+    assert.ok(line, `help line 「${text}」 must render a swatch with the real color ${color}`)
+  }
+  // 原 10 条原文必须逐条完整出现。
+  for (const line of WHOLE_HELP_TEXTS) {
+    assert.ok(panelText.includes(line), `help text must be present verbatim: ${line}`)
+  }
+  // 说明区可滚动：maxHeight + overflowY auto，不挤坏设置窗口。
+  const scrollBox = nodes.find(node =>
+    node.type === 'div' && node.props.style?.overflowY === 'auto' && typeof node.props.style?.maxHeight === 'number')
+  assert.ok(scrollBox, 'help section must be scrollable (maxHeight + overflowY auto)')
 })
 
 // 2026-09-09 Neal 定：5h 短窗行只参与排序取 min 与锁定段计算，不单独成行渲染。
