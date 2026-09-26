@@ -1,5 +1,6 @@
-// 插件整体说明展示在设置窗口（ProviderSettingsPanel）「使用说明」分区，
+// 插件整体说明展示在设置窗口（ProviderSettingsPanel）的 "Legend & notes" 分区，
 // 原文完整不改写；看板容器不再挂鼠标跟随整体说明。
+// 标题必须是英文：CONTRIBUTING 要求面板里每一个用户可见字符串都是英文。
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
@@ -94,17 +95,30 @@ const providersPayload = () => ({
   providers: [{ id: 'glm', label: 'GLM', kind: 'quota', enabled: true }]
 })
 
-test('settings panel contains a 使用说明 section with the full original help text', async () => {
+test('settings panel contains the Legend & notes section with the full original help text', async () => {
   const sandbox = buildSandbox({ responses: [providersPayload] })
   sandbox.__resetHooksState()
   collect(sandbox.ProviderSettingsPanel({ rest: sandbox.__ctxRest }))
   await new Promise(resolve => setImmediate(resolve))
   sandbox.__resetHooksState()
   const text = textOf(collect(sandbox.ProviderSettingsPanel({ rest: sandbox.__ctxRest })))
-  assert.ok(text.includes('使用说明'), 'settings panel must contain the 使用说明 section title')
+  assert.ok(text.includes('Legend & notes'), 'settings panel must contain the help section title')
   for (const line of WHOLE_HELP_TEXTS) {
     assert.ok(text.includes(line), `help text must be migrated verbatim: ${line}`)
   }
+})
+
+test('面板里没有中文用户可见字符串（CONTRIBUTING：每个可见字符串必须英文）', () => {
+  // 注释（含设计说明）允许中文；用户可见字符串不允许。命令别名允许中英并列，
+  // 那是搜索用的附加别名，不是界面文案。
+  const withoutBlocks = rawSource.replace(/\/\*[\s\S]*?\*\//g, '')
+  const withoutComments = withoutBlocks.replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+  const offenders = withoutComments
+    .split('\n')
+    .map((line, index) => ({ line: line.trim(), number: index + 1 }))
+    .filter(item => /[\u4e00-\u9fff]/.test(item.line))
+    .filter(item => !item.line.includes('keywords:'))
+  assert.deepEqual(offenders, [], `这些行还有中文界面文案：${JSON.stringify(offenders)}`)
 })
 
 test('meter body no longer renders the mouse-following whole-help tooltip', () => {

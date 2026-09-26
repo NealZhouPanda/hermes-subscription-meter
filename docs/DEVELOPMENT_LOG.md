@@ -1,5 +1,11 @@
 # Development Log
 
+2026-09-26 — global-user pass, part 1: English help title, provider-neutral fallback, hidden-pane guard
+
+- The settings help section was titled `使用说明`. `CONTRIBUTING.md` requires every user-visible string in the panel to be English, so it is now "Legend & notes". The Chinese command aliases stay on purpose: they sit next to their English counterparts as additive search aliases, not as display copy. A test now scans the source with comments stripped and fails on any remaining CJK outside that alias line.
+- The name-column fallback is documented as "an eight-character uppercase label plus dot and gaps" instead of "the longest name on the author's machine". Same 88px, but the rule no longer depends on which providers a given install happens to have — the fallback only applies when the panel cannot measure at all. `DEEPSEEK` and `COMMANDCODE` remain in the tests purely as width fixtures.
+- A probe that measures 0 wide now counts as "cannot measure". A pane that is collapsed or not laid out yet reports zero-width boxes; sizing from that would shrink the name column to its 48px floor and keep it there until the data changed, which a user would see as ellipsized names. `domTextMeasure` returns null in that case so the hook keeps the current track.
+
 2026-09-26 — deploy guard: atomic replace, previous-build slot, log sentinel
 
 - Deploying the panel used to be a plain copy into the directory the app watches. That makes every intermediate state of a multi-step edit live code — a temporarily duplicated declaration or a missing const is executed on save — and it left no way back when a build turned out to be broken at runtime. `tools/deploy.mjs` now runs the frontend suite, keeps the previous build as `plugin.js.last-good`, writes the new build to a temp file and `rename`s it over the live path (one atomic action, no half-written file ever visible), records a `deploy-receipt.json` (both hashes, timestamp), and then watches the app log for a few seconds.

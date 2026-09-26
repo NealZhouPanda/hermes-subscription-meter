@@ -60,6 +60,7 @@ test('reset metadata column keeps the fixed-track shape (meta 宽度由量测预
 // 名字列宽预算（2026-09-26 Neal：模型名与余量之间的空隙太大 → 按显示出来的最长名字定宽）。
 // 现在是面板每次拿到数据量一遍（名字格同款字模 0.65rem/600/tracking .08em + 圆点 6px + gap 8px），
 // 所有行共用一个值。这里钉：兜底值够用、量出来的值不多留空隙、长名字自动变宽、高峰徽标有位子。
+// DEEPSEEK（8 字符）与 COMMANDCODE（11 字符）只当**字宽样例**用，代码里不认任何 provider 名。
 // 实测值来自 headless 探针（~/.hermes/cache/scratch/sm-name-width-20260926/probe2.html），
 // 再用和倒计时同一把尺的折算系数换回仓库尺。
 const RULER = 1.0847
@@ -72,12 +73,12 @@ const fakeMeasure = (text, kind) =>
   (kind === 'badge' ? PEAK_BADGE_PX : MEASURED_NAME_TEXT_PX[text] || text.length * 7) * RULER
 const nameCellPx = text => 6 + 8 + MEASURED_NAME_TEXT_PX[text] * RULER
 
-test('兜底列宽（量不到时的默认值）装得下最长名字，也不多留空隙', () => {
+test('兜底列宽（量不到时的默认值）覆盖 8 字符大写名字，也不多留空隙', () => {
   const track = grid.DEFAULT_NAME_TRACK_PX
   const needed = nameCellPx('DEEPSEEK')
-  assert.ok(track >= needed, `兜底名字格 ${track}px 装不下 DEEPSEEK（实测需 ${needed.toFixed(2)}px）`)
+  assert.ok(track >= needed, `兜底名字格 ${track}px 装不下 8 字符名字（实测需 ${needed.toFixed(2)}px）`)
   assert.ok(track - needed < grid.NAME_TRACK_STEP_PX,
-    `兜底名字格比 DEEPSEEK 宽 ${(track - needed).toFixed(2)}px，超出一档粒度（${grid.NAME_TRACK_STEP_PX}px）`)
+    `兜底名字格比 8 字符名字宽 ${(track - needed).toFixed(2)}px，超出一档粒度（${grid.NAME_TRACK_STEP_PX}px）`)
 })
 
 test('名字列宽按当前数据自适应：短名字收窄、长名字变宽、只有真出现徽标才让位', () => {
@@ -88,7 +89,7 @@ test('名字列宽按当前数据自适应：短名字收窄、长名字变宽�
   assert.ok(withDeepseek >= nameCellPx('DEEPSEEK'), '量出来的列宽必须装得下最长的名字')
   assert.ok(withDeepseek - nameCellPx('DEEPSEEK') < grid.NAME_TRACK_STEP_PX,
     '量出来的列宽不该比最长的名字宽出一档以上（不然又留空隙了）')
-  assert.equal(withDeepseek, grid.DEFAULT_NAME_TRACK_PX, 'DEEPSEEK 就是兜底值的由来')
+  assert.equal(withDeepseek, grid.DEFAULT_NAME_TRACK_PX, '8 字符大写名字正好落在兜底值上（兜底值就是按它定的）')
 
   // 比兜底更长的名字（未来加了长名 provider）：列宽自己变宽，不靠省略号掩盖。
   const withLonger = grid.nameTrackPxFrom([{ label: 'COMMANDCODE' }], fakeMeasure)
@@ -151,6 +152,33 @@ test('rows switch to the two-line layout only below the single-line fit width', 
 test('countdown floors partial minutes', () => {
   const now = 1_000_000
   assert.equal(formatRemaining(now + (59 * 60 + 59) * 1000, now), '59m')
+})
+
+// 面板被隐藏（dock 收起、路由还没挂载完）时元素量出来是 0 宽。0 不是「文字很窄」，
+// 是「量不到」——照它定宽会把名字列压到下限，用户一展开就看见省略号。
+const fakeDocument = width => ({
+  body: { appendChild: () => {} },
+  createElement: () => ({
+    className: '', textContent: '', style: { cssText: '' },
+    appendChild: () => {}, setAttribute: () => {}, remove: () => {},
+    getBoundingClientRect: () => ({ width })
+  })
+})
+const domTextMeasureWith = width => vm.runInNewContext(
+  `${nameDepsSource}\n${gridSource}\n;domTextMeasure`,
+  { console, document: fakeDocument(width) }
+)
+
+test('量出 0 宽（面板被隐藏）时返回 null，交给调用方保留当前列宽', () => {
+  assert.equal(domTextMeasureWith(0)(), null, '0 宽必须当成量不到，不能拿去定宽')
+})
+
+test('量得到宽度时才给得出测量函数，且量完能摘掉探针', () => {
+  const measure = domTextMeasureWith(31.27)()
+  assert.ok(measure, '有真实宽度时必须能测量')
+  assert.equal(measure('GLM', 'name'), 31.27)
+  assert.equal(measure('PEAK', 'badge'), 31.27)
+  assert.equal(typeof measure.dispose, 'function', '量完要能把探针从 DOM 摘掉')
 })
 
 test('expired countdown clamps every unit to zero', () => {

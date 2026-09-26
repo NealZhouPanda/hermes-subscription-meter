@@ -94,7 +94,9 @@ const NAME_CELL_GAP_PX = 8 // gap-2
 const NAME_TRACK_SLACK_PX = 4 // 别贴着边
 const NAME_TRACK_MIN_PX = 48 // 3rem 下限：全是两字名字时也别收成一条缝
 const NAME_TRACK_STEP_PX = 8 // 量出来的值向上取整到 0.5rem，避免渲染抖动
-// 兜底值＝面板里最长的模型名（DEEPSEEK 连圆点实测 83.0px）＋余量。
+// 兜底值：只在面板量不到真实文字时用（无 document，或探针量不出宽度）。
+// 按「8 个大写字母的模型名 + 圆点 + 间距」（实测约 83px）再留 5px 余量定，
+// 与本机装了哪些 provider 无关。
 const DEFAULT_NAME_TRACK_PX = 5.5 * 16
 
 const pxToRem = px => `${px / 16}rem`
@@ -141,6 +143,12 @@ function domTextMeasure() {
       const probe = kind === 'badge' ? badgeProbe : nameProbe
       probe.textContent = text
       return probe.getBoundingClientRect().width
+    }
+    // 面板被隐藏 / 还没布局时宽度会是 0：这时「量出来的 0」不是真实文字宽度，
+    // 用它定宽会把名字列压到下限。宁可不量，让调用方保留当前值。
+    if (!(measure('PEAK', 'badge') > 0)) {
+      host.remove()
+      return null
     }
     measure.dispose = () => host.remove()
     return measure
@@ -961,7 +969,7 @@ function UsageHelpSection() {
     children: [
       jsx('h2', {
         className: 'text-sm font-medium text-foreground',
-        children: '使用说明'
+        children: 'Legend & notes'
       }),
       jsx('div', {
         // 可滚动：说明条目多时不挤坏设置窗口（maxHeight + overflowY auto）。
