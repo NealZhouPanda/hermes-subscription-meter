@@ -1,5 +1,16 @@
 # Development Log
 
+Requested 2026-09-26 — balance rows get a colour of their own, and unusable rows go grey (NOT BUILT YET)
+
+- Recorded for the next round of work on the panel (Neal asked for it to be built next time, not in this release). Two changes, both about colour:
+  1. Balance rows should carry colour too, in the two places that are visible today: the dot before the account name, and the money value itself (`balance ¥28.18`). Both are currently pinned to `NEUTRAL_VALUE_COLOR`.
+  2. Any row that cannot be used right now should go grey — plan rows and balance rows alike — whenever the account is exhausted: balance 0, short (5-hour) window spent, weekly window spent, or a balance cap reached. Plan rows today change colour only on a fetch error (red); being out of quota changes their order, not their look.
+- What the implementation has to touch:
+  - `NEUTRAL_VALUE_COLOR` carries the note "no amount-based dynamic coloring anymore". This request deliberately reverses that earlier decision (which was taken to drop amount-driven colouring), so it is a change of mind, not a bug fix.
+  - The "can it be used" verdict already exists as `availabilityOf(row, sibling)`, but today it only decides ranking. Colouring can reuse it; balance rows need a new "balance 0 / cap reached" arm.
+  - The help text states the opposite rule today — "The dot by a plan name distinguishes providers — not cell colors or balance status." — and has to change with this work.
+  - Grey has to exist in both palettes: `paletteFor(mode)` is the only entry point, and the new pairs have to clear the per-pair floor in `tests/color-modes.test.mjs`.
+
 2026-09-26 — 0.4.0 released
 
 - `plugin.yaml` goes 0.3.0 → 0.4.0, tagging the eight commits since `v0.3.0`. Two of them change what the panel shows (a colour-vision mode; out-of-quota rows sinking below the rows you can still call), the rest fix what the columns and the copy were getting wrong. Nothing here changes the ranking score itself, and the 5-hour window still takes no part in it.
