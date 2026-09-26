@@ -1,5 +1,11 @@
 # Development Log
 
+2026-09-26 — deploy guard: atomic replace, previous-build slot, log sentinel
+
+- Deploying the panel used to be a plain copy into the directory the app watches. That makes every intermediate state of a multi-step edit live code — a temporarily duplicated declaration or a missing const is executed on save — and it left no way back when a build turned out to be broken at runtime. `tools/deploy.mjs` now runs the frontend suite, keeps the previous build as `plugin.js.last-good`, writes the new build to a temp file and `rename`s it over the live path (one atomic action, no half-written file ever visible), records a `deploy-receipt.json` (both hashes, timestamp), and then watches the app log for a few seconds.
+- The sentinel only reacts to lines that name this plugin and are newer than the deploy, so an unrelated plugin's crash does not roll this one back: on a fresh `error-boundary` / `React error #310` entry it restores `.last-good` atomically, marks the receipt, prints the offending lines and exits non-zero. `tools/rollback.mjs` does the same restore by hand.
+- `tests/deploy-guard.test.mjs` exercises both scripts against a temporary runtime directory and log file: atomic replace plus `.last-good` plus receipt, first deploy with no previous build, automatic rollback on a fresh failure, ignoring other plugins and stale log lines, and manual rollback refusing to touch the runtime when there is nothing to restore.
+
 2026-09-26 — reset countdown: merged 5H/weekly view, plain-word wording, help text moved to settings
 
 - Reset column now shows whichever of the provider's two windows resets sooner (5H vs the main weekly/monthly window) instead of always preferring the short window. The window is named in front of the label, spelled with words (`5H Reset 4h 21m`, `7D Reset 6d 23h 59m`) — the circular-arrow form is gone, and rows without a short window name their own window too (a Grok weekly row reads `7D Reset …`). Rows whose data carries no window length keep the plain `Reset …` form.

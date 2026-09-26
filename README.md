@@ -69,6 +69,17 @@ python -m pytest tests/
 
 The backend test suite runs fully offline: every test gets a temp `HERMES_HOME` and outbound sockets are blocked by fixtures in `tests/conftest.py`.
 
+Deploying the panel into a running Hermes goes through the guard instead of a
+plain copy — it checks syntax, runs the frontend suite, keeps the previous build
+as `.last-good`, replaces the live file atomically (a half-written file would be
+executed by the app's directory watcher), then watches the app log for a few
+seconds and rolls back by itself if this plugin starts throwing:
+
+```bash
+node tools/deploy.mjs        # deploy + watch; add --no-sentinel to skip the watch
+node tools/rollback.mjs      # put the previous build back by hand
+```
+
 `docs/dev/` contains the design-review notes from the provider-neutral refactor. `diagnostics/` holds small local debugging scripts used during development.
 
 ## Contact
