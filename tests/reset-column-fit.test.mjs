@@ -266,11 +266,11 @@ test('量宽 hook 在任何提前 return 之前，且面板里没有其他后置
   )
   assert.ok(body.length > 0, 'plugin.js 里应当有 SubscriptionMeterBody')
   const earlyReturnIndex = body.indexOf('if (!rows.length)')
-  const hookIndex = body.indexOf('useMeasuredNameTrack(')
+  const hookIndex = body.indexOf('useMeasuredTracks(')
   assert.ok(earlyReturnIndex > 0, '面板应当还有“没数据先返回骨架”的分支')
-  assert.ok(hookIndex > 0, '面板应当调用 useMeasuredNameTrack')
+  assert.ok(hookIndex > 0, '面板应当调用 useMeasuredTracks')
   assert.ok(hookIndex < earlyReturnIndex,
-    'useMeasuredNameTrack 必须在提前 return 之前调用：放在之后会让数据到达那次渲染多一个 hook（#310）')
+    'useMeasuredTracks 必须在提前 return 之前调用：放在之后会让数据到达那次渲染多一个 hook（#310）')
   const afterEarlyReturn = body.slice(earlyReturnIndex)
   assert.equal(afterEarlyReturn.match(/\buse[A-Z]\w*\(/g), null,
     `提前 return 之后还有 hook 调用，会触发 React #310：${afterEarlyReturn.match(/\buse[A-Z]\w*\(/g)}`)

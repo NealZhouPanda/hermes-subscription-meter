@@ -1,5 +1,12 @@
 # Development Log
 
+2026-09-26 — global-user pass, part 2: every fixed column is measured, not assumed
+
+- The quota and reset columns were sized from numbers measured once with the author's macOS font stack (`3.75rem`, `11.5rem`). A headless probe using the panel's own classes and font sizes shows why that leaks: `Unknown —` needs 55.2px in SF Pro but 64.5px when the dash comes from a CJK font, `30D Reset 30d 23h 59m` goes 118.8 → 126.4px, and the 60px quota track was already down to 1px of slack (`100% left` measures 58.95px in the cell's mono font). All three tracks now go through the same measurement as the name column: `quotaTrackPxFrom` measures the quota-cell strings, `metaTrackPxFrom` measures the widest reset cell (worst-case clock + 6px gap + surplus suffix); both round up to the 0.5rem grid and keep the old numbers as floors. On the author's machine the only change is `3.75rem → 4rem` for the quota column (a 30-day row also moves the reset column 11.5rem → 12rem); on a wider font every track and the narrow-layout breakpoint grow with it.
+- Cell text now has one source each: `quotaCellText`, `surplusOf` and `metaCellEntry` are used by both the row renderer and the measurement, so a wording change cannot silently invalidate the width budget. The reset column is measured from a worst-case clock string derived from the window (whole cycle, not this minute's reading) — measuring the live countdown would make the column jump every time a digit dropped.
+- `tests/format-remaining.test.mjs` pins the new contracts: the measured value wins over the floor, slack stays under one step, tracks land on the 0.5rem grid, empty or clock-less entries do not widen a track, the worst-case clock text comes from the cycle, and quota/unknown/ERR cell text comes from one helper.
+- Frontend suite: 143/143. Deployed through `tools/deploy.mjs` (`.last-good` = the previous verified build).
+
 2026-09-26 — global-user pass, part 1: English help title, provider-neutral fallback, hidden-pane guard
 
 - The settings help section was titled `使用说明`. `CONTRIBUTING.md` requires every user-visible string in the panel to be English, so it is now "Legend & notes". The Chinese command aliases stay on purpose: they sit next to their English counterparts as additive search aliases, not as display copy. A test now scans the source with comments stripped and fails on any remaining CJK outside that alias line.

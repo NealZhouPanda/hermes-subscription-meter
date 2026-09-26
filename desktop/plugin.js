@@ -75,39 +75,49 @@ function gridTemplateColumns(subscription) {
 }
 // >>> grid-budget（tests 按这对标记取这一段源码评估，改内部结构不用改测试的正则）>>>
 // Compact fixed metadata columns keep all 84-cell matrices vertically aligned.
-// 9.5rem 装不下最坏组合：2026-09-22 用 headless 探针按 app 默认字模实测
-// （~/.hermes/cache/scratch/sm-reset-width/measure.mjs），"Reset 5d 15h 45m"
-// 89.2px + 6px gap + "+19.1 cells" 59.3px = 154.6px > 152px，于是倒计时被截成
-// "Reset 5d 15h 4…"；上一个已经挂零余量（"Reset 29d 0h 0m" + "−30.0 cells" = 148.2px）。
-// 2026-09-26 文案改「7D Reset 6d 23h 59m」后最坏倒计时 105.31px，
-// 11.5rem = 184px 覆盖最坏组合 178.65px（105.31 + 6 gap + "−93.0 cells" 59.34 + 8 余量）。
-const QUOTA_TRACK_PX = 3.75 * 16
-const META_TRACK_PX = 11.5 * 16
+// 三条轨道（名字 / 配额 / 倒计时）用的是同一套量宽机制：面板按**当前字模**量出真实需要的
+// 宽度，所有行共用同一个值（84 格矩阵跨行对齐靠它）。下面这些常量只是**下限**，量不到
+// （无 document / 探针量不出宽度）时才退回它们。Mac 上量出来的值就落在下限，所以外观与
+// 2026-09-22 定稿一致；字模更宽（中文字模把 "—" 渲成全角、等宽回退、用户自定义 UI 字体）
+// 时轨道自己变宽，不再沿用按 Mac 字模实测的数字。
+// 实测依据（2026-09-26，headless，~/.hermes/cache/scratch/sm-track-width-20260926/probe5.html）：
+// "30D Reset 29d 23h 59m" SF Pro 108.4px / 中文 123.7px / 等宽 126.4px；
+// "Unknown —" SF Pro 55.2px / 中文 59.3px（配额列 60px 下限只剩 0.7px）。
+// 历史：9.5rem 装不下最坏组合（2026-09-22 "Reset 5d 15h 45m" 89.2 + 6 + "+19.1 cells" 59.3
+// = 154.6px > 152px → 截断）；文案改「7D Reset 6d 23h 59m」后最坏 105.31px，
+// 11.5rem = 184px 覆盖 178.65px。这两条实测值保留为下限。
+const QUOTA_TRACK_MIN_PX = 3.75 * 16
+const META_TRACK_MIN_PX = 11.5 * 16
 const METER_TRACK_MIN_PX = 6 * 16
 const ROW_GAP_PX = 8 // gap-2 × 3 段
 const ROW_PADDING_PX = 2 * 6 // px-1.5 两侧
+const META_CELL_GAP_PX = 6 // gap-1.5：倒计时与余数后缀之间
 // 名字列宽不写死（2026-09-26 Neal：名字与余量之间空隙太大 → 按显示出来的最长名字定宽）。
 // 面板拿到数据后量一次当前行的名字，**所有行共用同一个值**（84 格矩阵跨行对齐靠它），
 // 量不到（无 document：测试 / SSR）时退回 DEFAULT_NAME_TRACK_PX。
 const NAME_CELL_DOT_PX = 6 // size-1.5 圆点
 const NAME_CELL_GAP_PX = 8 // gap-2
-const NAME_TRACK_SLACK_PX = 4 // 别贴着边
+const TRACK_SLACK_PX = 4 // 三条轨道都别贴着边
 const NAME_TRACK_MIN_PX = 48 // 3rem 下限：全是两字名字时也别收成一条缝
-const NAME_TRACK_STEP_PX = 8 // 量出来的值向上取整到 0.5rem，避免渲染抖动
+const TRACK_STEP_PX = 8 // 量出来的值向上取整到 0.5rem，避免渲染抖动（三轨共用）
 // 兜底值：只在面板量不到真实文字时用（无 document，或探针量不出宽度）。
 // 按「8 个大写字母的模型名 + 圆点 + 间距」（实测约 83px）再留 5px 余量定，
 // 与本机装了哪些 provider 无关。
 const DEFAULT_NAME_TRACK_PX = 5.5 * 16
 
 const pxToRem = px => `${px / 16}rem`
-const wideGridTemplate = nameTrackPx =>
-  `${pxToRem(nameTrackPx)} 3.75rem 11.5rem minmax(6rem, 1fr)`
-const narrowGridTemplate = nameTrackPx =>
-  `${pxToRem(nameTrackPx)} 3.75rem minmax(0, 1fr)`
-// 断点＝宽排布局的最小需求：固定轨道之和。低于它整行装不下，换两行布局。
-const narrowBreakpointPx = nameTrackPx =>
-  nameTrackPx + QUOTA_TRACK_PX + META_TRACK_PX + METER_TRACK_MIN_PX
+// 三条轨道都从量测值走；不给就用下限（单独渲染一个行 / 测试时）。
+const wideGridTemplate = (nameTrackPx, quotaTrackPx = QUOTA_TRACK_MIN_PX, metaTrackPx = META_TRACK_MIN_PX) =>
+  `${pxToRem(nameTrackPx)} ${pxToRem(quotaTrackPx)} ${pxToRem(metaTrackPx)} minmax(6rem, 1fr)`
+const narrowGridTemplate = (nameTrackPx, quotaTrackPx = QUOTA_TRACK_MIN_PX) =>
+  `${pxToRem(nameTrackPx)} ${pxToRem(quotaTrackPx)} minmax(0, 1fr)`
+// 断点＝宽排布局的最小需求：三条固定轨道之和。低于它整行装不下，换两行布局。
+// 轨道随字模变宽 → 断点跟着变大，窄屏用户不会在「装不下」的宽度上继续用宽排。
+const narrowBreakpointPx = (nameTrackPx, quotaTrackPx = QUOTA_TRACK_MIN_PX, metaTrackPx = META_TRACK_MIN_PX) =>
+  nameTrackPx + quotaTrackPx + metaTrackPx + METER_TRACK_MIN_PX
     + 3 * ROW_GAP_PX + ROW_PADDING_PX
+
+const ceilToStep = px => Math.ceil(px / TRACK_STEP_PX) * TRACK_STEP_PX
 
 // 名字列宽＝按当前行量出来的「最宽一格」，向上取整到 0.5rem。
 // measure(text, kind) 由真实 DOM 提供（名字用名字格同款字模，'badge' 用 PEAK 胶囊）。
@@ -118,9 +128,36 @@ function nameTrackPxFrom(rows, measure, peakActive = () => false) {
   for (const row of rows) {
     let need = NAME_CELL_DOT_PX + NAME_CELL_GAP_PX + measure(quotaDisplayName(row), 'name')
     if (row && peakActive(row)) need += NAME_CELL_GAP_PX + measure('PEAK', 'badge')
-    widest = Math.max(widest, need + NAME_TRACK_SLACK_PX)
+    widest = Math.max(widest, need + TRACK_SLACK_PX)
   }
-  return Math.ceil(widest / NAME_TRACK_STEP_PX) * NAME_TRACK_STEP_PX
+  return ceilToStep(widest)
+}
+
+// 配额列宽＝最宽那一格配额文字（"83% left" / "Unknown —" / "ERR"，等宽 0.68rem）。
+// texts 由调用方用**和真格子同一处**的逻辑给出（quotaCellText），别再抄一遍。
+function quotaTrackPxFrom(texts, measure) {
+  let widest = 0
+  for (const text of texts) {
+    if (typeof text !== 'string' || !text) continue
+    widest = Math.max(widest, measure(text, 'quota') + TRACK_SLACK_PX)
+  }
+  // 只把**量出来的**值取整到 0.5rem，再加下限：60px 不是 0.5rem 的整数倍，
+  // 先取整会把下限本身抬到 64px，白占 4px。
+  return Math.max(QUOTA_TRACK_MIN_PX, ceilToStep(widest))
+}
+
+// 倒计时列宽＝clock（"7D Reset 6d 23h 59m"）+ 可选余数后缀（"−93.0 cells"），中间 6px gap。
+// 传进来的是**最坏组合**（窗口按整窗、余数后缀按当前值），不是这一分钟的读数——
+// 否则倒计时每掉一位列宽就抖一次。
+function metaTrackPxFrom(entries, measure) {
+  let widest = 0
+  for (const entry of entries) {
+    if (!entry || typeof entry.clock !== 'string') continue
+    let need = measure(entry.clock, 'clock')
+    if (entry.surplus) need += META_CELL_GAP_PX + measure(entry.surplus, 'surplus')
+    widest = Math.max(widest, need + TRACK_SLACK_PX)
+  }
+  return Math.max(META_TRACK_MIN_PX, ceilToStep(widest))
 }
 
 // 量文字的探针：临时元素用**和真格子一模一样的类名**，量完就摘（不留在 DOM 里）。
@@ -135,12 +172,24 @@ function domTextMeasure() {
   const badgeProbe = document.createElement('span')
   badgeProbe.className = 'rounded-full px-1.5 py-px font-mono text-[0.5rem] font-semibold leading-none'
   badgeProbe.textContent = 'PEAK'
+  // 另外三条探针的字模必须和真格子一致，否则量出来的宽度换回布局就错了：
+  // clock = metaCell 的倒计时，surplus = 同行余数后缀，quota = quotaCell。
+  const clockProbe = document.createElement('span')
+  clockProbe.className = 'text-[0.625rem] tabular-nums'
+  const surplusProbe = document.createElement('span')
+  surplusProbe.className = 'font-mono text-[0.56rem]'
+  const quotaProbe = document.createElement('span')
+  quotaProbe.className = 'font-mono text-[0.68rem] tabular-nums'
   host.appendChild(nameProbe)
   host.appendChild(badgeProbe)
+  host.appendChild(clockProbe)
+  host.appendChild(surplusProbe)
+  host.appendChild(quotaProbe)
   document.body.appendChild(host)
   try {
-    const measure = (text, kind) => {
-      const probe = kind === 'badge' ? badgeProbe : nameProbe
+    const probes = { name: nameProbe, badge: badgeProbe, clock: clockProbe, surplus: surplusProbe, quota: quotaProbe }
+    const measure = (text, kind = 'name') => {
+      const probe = probes[kind] || nameProbe
       probe.textContent = text
       return probe.getBoundingClientRect().width
     }
@@ -182,23 +231,68 @@ function useQuotaRowLayout(ref, breakpointPx = NARROW_ROW_BREAKPOINT_PX) {
   return layout
 }
 
-// 面板级：量一次名字格宽度，所有行共用（换模型/加长名字自己跟上，没人再写死列宽）。
-function useMeasuredNameTrack(rows, now) {
-  const [trackPx, setTrackPx] = useState(DEFAULT_NAME_TRACK_PX)
-  // 依赖用「名字 + 此刻是否在高峰」的签名（行对象每轮轮询都会换新的引用）：
-  // 高峰边界一到就重新量一次，徽标该出现时列宽跟着变。
-  const signature = rows.map(row => `${quotaDisplayName(row)}:${activePeakRule(row, now) ? 1 : 0}`).join('|')
+// 格子文字的**唯一来源**：行渲染与量宽都调这里，抄第二遍迟早对不上。
+function quotaCellText(subscription) {
+  if (subscription?.error) return 'ERR'
+  const used = subscription?.usedPercent
+  if (used === null || used === undefined) return 'Unknown —'
+  return `${Math.round(100 - used)}% left`
+}
+
+// 余数后缀：失败行 / 未知配额行不预测（与行内逻辑同一处判定）。
+function surplusOf(subscription, now) {
+  const used = subscription?.usedPercent
+  if (subscription?.error || used === null || used === undefined) return { blocks: null, text: null }
+  const blocks = surplusBlocks(subscription, now)
+  return { blocks, text: blocks === null || blocks === undefined ? null : formatSurplus(blocks) }
+}
+
+// 倒计时格的量宽输入：clock 取**最坏组合**（按整窗算，不是这一分钟的读数），
+// 否则倒计时每掉一位列宽就抖一次。失败行由调用方先滤掉（那格显示 error 摘要、有意截断）。
+function metaCellEntry(subscription, surplusText) {
+  const cycleMs = quotaCycleMs(subscription)
+  let tail = '—'
+  if (cycleMs !== null) {
+    const days = Math.floor(cycleMs / 86400000)
+    tail = days >= 1 ? `${days}d 23h 59m` : `${Math.floor(cycleMs / 3600000)}h 59m`
+  }
+  return { clock: resetClockLabel(windowKeyOf(subscription), tail), surplus: surplusText }
+}
+
+// 面板级：量一次三条轨道（名字 / 配额 / 倒计时），所有行共用同一个值——跨行对齐靠它。
+// 换模型、加长名字、换字模、高峰徽标出现，都会自己跟上，没人再写死列宽。
+function useMeasuredTracks(rows, now) {
+  const [tracks, setTracks] = useState({
+    nameTrackPx: DEFAULT_NAME_TRACK_PX,
+    quotaTrackPx: QUOTA_TRACK_MIN_PX,
+    metaTrackPx: META_TRACK_MIN_PX
+  })
+  // 依赖签名＝所有会影响量测的输入（行对象每轮轮询都换新引用，不能拿它们当依赖）。
+  // 倒计时读数**不进**签名：最坏组合已经定住宽度，不必每分钟重量一次。
+  const signature = rows.map(row => [
+    quotaDisplayName(row),
+    activePeakRule(row, now) ? 1 : 0,
+    quotaCellText(row),
+    row?.error ? 'failed' : `${windowKeyOf(row)}:${surplusOf(row, now).text || ''}`
+  ].join(':')).join('|')
   useLayoutEffect(() => {
     const measure = domTextMeasure()
     if (!measure) return undefined
     try {
-      setTrackPx(nameTrackPxFrom(rows, measure, row => Boolean(activePeakRule(row, now))))
+      setTracks({
+        nameTrackPx: nameTrackPxFrom(rows, measure, row => Boolean(activePeakRule(row, now))),
+        quotaTrackPx: quotaTrackPxFrom(rows.map(quotaCellText), measure),
+        metaTrackPx: metaTrackPxFrom(
+          rows.filter(row => !row?.error).map(row => metaCellEntry(row, surplusOf(row, now).text)),
+          measure
+        )
+      })
     } finally {
       measure.dispose()
     }
     return undefined
   }, [signature])
-  return trackPx
+  return tracks
 }
 
 // 五色图例配色（2026-09-12 Neal 定，色值取自 Neal 截图逐像素取样）：
@@ -804,13 +898,15 @@ function WeeklyMeter({ subscription, now, fiveHourSibling }) {
 }
 
 // Weekly quota has its own row structure: name -> remaining quota -> reset -> matrix.
-// nameTrackPx 由面板量出来传进来（所有行同一个值）；单独渲染（测试）时用兜底值。
-function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NAME_TRACK_PX }) {
+// 三条轨道宽度都由面板量出来传进来（所有行同一个值）；单独渲染（测试）时用下限。
+// 注意：签名保持单行 —— 多个测试用 /function WeeklyQuotaRow\([\s\S]*?\n\}/ 切函数体，
+// 换成多行解构会让切片断在 `}) {` 上（2026-09-26 踩过）。
+function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NAME_TRACK_PX, quotaTrackPx = QUOTA_TRACK_MIN_PX, metaTrackPx = META_TRACK_MIN_PX }) {
   const failed = Boolean(subscription.error)
   const unknown = subscription.usedPercent === null || subscription.usedPercent === undefined
   // 配色来自行（后端抄进行）；行上没给就用中性绿。
   const accent = failed ? COLORS.danger : (subscription.accent || COLORS.green)
-  const quotaText = failed ? 'ERR' : (unknown ? 'Unknown —' : `${Math.round(100 - subscription.usedPercent)}% left`)
+  const quotaText = quotaCellText(subscription)
   // 5h 兄弟行（2026-09-09 起）：从全部 quota 行池里找同 providerId 的短窗行。
   // 两个用途——Reset 倒计时的候选来源（resetWindowCandidates）与 WeeklyMeter 的锁定段。
   // 找不到 / 月行 → null：倒计时退回本行（周/月），锁定段不画。
@@ -831,8 +927,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NA
         countdown?.key ?? windowKeyOf(subscription),
         countdown ? formatRemaining(countdown.at, now) : '—'
       )
-  const blocks = failed || unknown ? null : surplusBlocks(subscription, now)
-  const surplusText = blocks === null ? null : formatSurplus(blocks)
+  const { blocks, text: surplusText } = surplusOf(subscription, now)
   const surplusTone = surplusText ? (blocks >= 0 ? COLORS.green : COLORS.danger) : null
   // Unknown/failed quota rows must not render a surplus prediction: blocks
   // would only reflect time progress, never real surplus.
@@ -840,7 +935,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NA
     ? `Surplus vs. even-time pacing, in cells: ${blocks >= 0 ? 'positive = saved relative to even pacing' : 'negative = consumed ahead of pacing'}`
     : undefined
   const rowRef = useRef(null)
-  const narrow = useQuotaRowLayout(rowRef, narrowBreakpointPx(nameTrackPx)) === 'narrow'
+  const narrow = useQuotaRowLayout(rowRef, narrowBreakpointPx(nameTrackPx, quotaTrackPx, metaTrackPx)) === 'narrow'
 
   const nameCell = jsxs('span', {
     className: 'flex min-w-0 items-center gap-2',
@@ -924,7 +1019,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NA
       children: [
         jsxs('div', {
           className: 'grid min-w-0 items-center gap-2',
-          style: { display: 'grid', gridTemplateColumns: narrowGridTemplate(nameTrackPx) },
+          style: { display: 'grid', gridTemplateColumns: narrowGridTemplate(nameTrackPx, quotaTrackPx) },
           children: [nameCell, quotaCell, metaCell]
         }),
         // WeeklyMeter 根节点的 flex 属性在网格里是惰性的，但到了纵向 flex 容器
@@ -938,7 +1033,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NA
     ref: rowRef,
     title: failed ? String(subscription.error || '') : undefined,
     className: 'grid min-w-0 items-center gap-2 overflow-hidden rounded px-1.5 py-0 text-left',
-    style: { display: 'grid', gridTemplateColumns: wideGridTemplate(nameTrackPx), minHeight: '1.2rem' },
+    style: { display: 'grid', gridTemplateColumns: wideGridTemplate(nameTrackPx, quotaTrackPx, metaTrackPx), minHeight: '1.2rem' },
     children: [nameCell, quotaCell, metaCell, meterCell]
   })
 }
@@ -1279,8 +1374,8 @@ function SubscriptionMeterBody({ rest }) {
   // 整个面板显示为损坏（2026-09-26 实际炸过一次）。行排序等纯计算跟着一起上移。
   const displayRows = orderRowsForDisplay(rows, now)
   const quotaPool = displayRows.filter(r => r.kind === 'quota')
-  // 名字列宽：按当前 quota 行的名字量一次，所有行共用（换数据自己跟上）。
-  const nameTrackPx = useMeasuredNameTrack(quotaPool, now)
+  // 三条轨道宽度：按当前 quota 行的真实文字量一次，所有行共用（换数据/换字模自己跟上）。
+  const tracks = useMeasuredTracks(quotaPool, now)
 
   if (!rows.length) {
     return jsx('div', {
@@ -1307,7 +1402,7 @@ function SubscriptionMeterBody({ rest }) {
       subscription,
       now,
       quotaPool,
-      nameTrackPx
+      ...tracks
     })
   )
   const zoneDivider = key => jsx('div', {

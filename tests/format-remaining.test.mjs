@@ -45,7 +45,8 @@ const nameDepsSource = sliceBetween('// >>> display-name', '// <<< display-name 
 const gridSource = sliceBetween('// >>> grid-budget', '// <<< grid-budget <<<')
 const grid = vm.runInNewContext(
   `${nameDepsSource}\n${gridSource}\n;({ QUOTA_GRID_COLUMNS, QUOTA_GRID_COLUMNS_NARROW,`
-    + ' NARROW_ROW_BREAKPOINT_PX, DEFAULT_NAME_TRACK_PX, NAME_TRACK_MIN_PX, NAME_TRACK_STEP_PX,'
+    + ' NARROW_ROW_BREAKPOINT_PX, DEFAULT_NAME_TRACK_PX, NAME_TRACK_MIN_PX, TRACK_STEP_PX, TRACK_SLACK_PX,'
+    + ' QUOTA_TRACK_MIN_PX, META_TRACK_MIN_PX, META_CELL_GAP_PX, ceilToStep, quotaTrackPxFrom, metaTrackPxFrom,'
     + ' wideGridTemplate, narrowGridTemplate, narrowBreakpointPx, nameTrackPxFrom, quotaRowLayout })',
   { console }
 )
@@ -77,8 +78,8 @@ test('兜底列宽（量不到时的默认值）覆盖 8 字符大写名字，�
   const track = grid.DEFAULT_NAME_TRACK_PX
   const needed = nameCellPx('DEEPSEEK')
   assert.ok(track >= needed, `兜底名字格 ${track}px 装不下 8 字符名字（实测需 ${needed.toFixed(2)}px）`)
-  assert.ok(track - needed < grid.NAME_TRACK_STEP_PX,
-    `兜底名字格比 8 字符名字宽 ${(track - needed).toFixed(2)}px，超出一档粒度（${grid.NAME_TRACK_STEP_PX}px）`)
+  assert.ok(track - needed < grid.TRACK_STEP_PX,
+    `兜底名字格比 8 字符名字宽 ${(track - needed).toFixed(2)}px，超出一档粒度（${grid.TRACK_STEP_PX}px）`)
 })
 
 test('名字列宽按当前数据自适应：短名字收窄、长名字变宽、只有真出现徽标才让位', () => {
@@ -87,7 +88,7 @@ test('名字列宽按当前数据自适应：短名字收窄、长名字变宽�
 
   const withDeepseek = grid.nameTrackPxFrom([{ label: 'GLM' }, { label: 'DEEPSEEK' }], fakeMeasure)
   assert.ok(withDeepseek >= nameCellPx('DEEPSEEK'), '量出来的列宽必须装得下最长的名字')
-  assert.ok(withDeepseek - nameCellPx('DEEPSEEK') < grid.NAME_TRACK_STEP_PX,
+  assert.ok(withDeepseek - nameCellPx('DEEPSEEK') < grid.TRACK_STEP_PX,
     '量出来的列宽不该比最长的名字宽出一档以上（不然又留空隙了）')
   assert.equal(withDeepseek, grid.DEFAULT_NAME_TRACK_PX, '8 字符大写名字正好落在兜底值上（兜底值就是按它定的）')
 
@@ -108,7 +109,7 @@ test('名字列宽按当前数据自适应：短名字收窄、长名字变宽�
 
   // 量出来的值一律落在 0.5rem 网格上（渲染不抖）。
   for (const track of [shortOnly, withDeepseek, withLonger, offPeak, inPeak]) {
-    assert.equal(track % grid.NAME_TRACK_STEP_PX, 0, `列宽 ${track}px 不在 0.5rem 网格上`)
+    assert.equal(track % grid.TRACK_STEP_PX, 0, `列宽 ${track}px 不在 0.5rem 网格上`)
   }
 
   assert.equal(grid.nameTrackPxFrom([], fakeMeasure), grid.NAME_TRACK_MIN_PX, '没有行时用下限')
@@ -183,4 +184,58 @@ test('量得到宽度时才给得出测量函数，且量完能摘掉探针', ()
 
 test('expired countdown clamps every unit to zero', () => {
   assert.equal(formatRemaining(1_000, 2_000), '0m')
+})
+
+// ---------------------------------------------------------------------------
+// B2（2026-09-26）：配额列与倒计时列也不再吃「按 Mac 字模实测」的数字。
+// 旧值降级为**下限**，真实宽度按当前字模量出来；字模更宽（中文字模把 "—" 渲成全角、
+// 等宽回退、用户自定义 UI 字体）时轨道自己变宽。实测：SEG 见 probe5.html。
+test('配额列宽按实测走：装得下就用旧下限，字模更宽时自己变宽', () => {
+  const narrowFont = text => text.length * 5
+  assert.equal(grid.quotaTrackPxFrom(['ERR', '83% left'], narrowFont), grid.QUOTA_TRACK_MIN_PX,
+    '窄字模下不该白占宽度：留在下限')
+
+  const cjkDash = 59.3 * 1.35 // 中文字模：— 是全角，"Unknown —" 变宽
+  const wideFont = text => (text === 'Unknown —' ? cjkDash : text.length * 5)
+  const track = grid.quotaTrackPxFrom(['100% left', 'Unknown —'], wideFont)
+  assert.ok(track >= cjkDash, `配额列必须装得下最宽那格（需 ${cjkDash.toFixed(1)}px，得 ${track}px）`)
+  assert.ok(track - cjkDash < grid.TRACK_STEP_PX, '不该多留一档以上的空隙')
+  assert.equal(track % grid.TRACK_STEP_PX, 0, `列宽 ${track}px 不在 0.5rem 网格上`)
+})
+
+test('倒计时列宽＝最坏 clock + 6px + 余数后缀，同样只把旧值当下限', () => {
+  const wide = (text, kind) => (kind === 'clock' ? 130 : 45)
+  const track = grid.metaTrackPxFrom([{ clock: '7D Reset 7d 23h 59m', surplus: '−93.0 cells' }], wide)
+  assert.equal(track, grid.ceilToStep(130 + grid.META_CELL_GAP_PX + 45 + grid.TRACK_SLACK_PX))
+  assert.ok(track > grid.META_TRACK_MIN_PX, '宽字模下要超过旧下限（这正是全球用户要的）')
+  assert.equal(grid.metaTrackPxFrom([{ clock: '5H Reset 5h 59m' }], () => 60), grid.META_TRACK_MIN_PX,
+    '窄字模 / 没有余数后缀时用下限')
+  assert.equal(grid.metaTrackPxFrom([null, {}, { clock: null }], wide), grid.META_TRACK_MIN_PX,
+    '空行 / 缺 clock 不该撑宽')
+})
+
+// 这三个纯函数也按正则切出来评估（与上面同一把尺）。
+const sliceFn = name => {
+  const block = pluginSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}`))?.[0]
+  assert.ok(block, `plugin.js 必须有 function ${name}`)
+  return block
+}
+const cellText = vm.runInNewContext([
+  sliceFn('quotaCycleMs'), sliceFn('windowKeyOf'), sliceFn('resetClockLabel'),
+  sliceFn('metaCellEntry'), sliceFn('quotaCellText'),
+  ';({ metaCellEntry, quotaCellText })'
+].join('\n'), { console })
+
+test('最坏倒计时按整窗算，不是这一分钟的读数（列宽不随时间抖）', () => {
+  assert.equal(cellText.metaCellEntry({ windowSeconds: 7 * 86400 }, null).clock, '7D Reset 7d 23h 59m')
+  assert.equal(cellText.metaCellEntry({ windowSeconds: 5 * 3600 }, null).clock, '5H Reset 5h 59m')
+  assert.equal(cellText.metaCellEntry({ windowSeconds: 30 * 86400 }, '−30.0 cells').surplus, '−30.0 cells')
+  // 无窗口（windowSeconds 缺失）→ 不编造窗口词，只留破折号
+  assert.equal(cellText.metaCellEntry({}, null).clock.endsWith('Reset —'), true)
+})
+
+test('配额格文字只有一处来源：行渲染与量宽都是它', () => {
+  assert.equal(cellText.quotaCellText({ usedPercent: 17 }), '83% left')
+  assert.equal(cellText.quotaCellText({ usedPercent: null }), 'Unknown —')
+  assert.equal(cellText.quotaCellText({ error: 'boom', usedPercent: 17 }), 'ERR')
 })
