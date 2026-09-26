@@ -1,5 +1,12 @@
 # Development Log
 
+2026-09-26 — availability gate: a window you cannot use never leads the board
+
+- Sorting had exactly one dimension (the main window's surplus pace, 2026-09-09) and deliberately kept the 5h burst window out of it (2026-09-10). That is still the right call, but it left the board blind to a different fact: an exhausted burst window means the account cannot be called at all. Live case: Codex sat at 100% of its 5h window and 97% of its weekly window (server reported `allowed: false`) yet its weekly row ranked first — with 2.8% of the window left, the `÷ (1 − elapsed)` denominator had turned a 0.2% surplus into P = 0.074, ahead of GLM with 98% remaining.
+- `orderRowsForDisplay` now tiers rows: callable first (unchanged priority formula), then not-callable rows (main window or burst window exhausted) ordered by unlock time, then rows with no usable reset moment, then balance rows. `availabilityOf(row, sibling)` is the single predicate; `burstShare` deliberately takes no part — it decides how long the locked segment is drawn, not whether the row can be spent. A row blocked by its burst window unlocks at the burst reset; one that burned its main window unlocks at its own.
+- Live before/after on one payload: `codex(3% left) → kimi → glm → grok` becomes `kimi → glm → grok → codex`. `tests/availability-gate.test.mjs` pins the live case, "large locked segment but still callable", both unlock times, rows without a share, and the automatic return to priority order once the window resets. Frontend suite: 156/156.
+- Deployed through `tools/deploy.mjs` (atomic replace + log sentinel): runtime sha `4513d0cd`, no error-boundary afterwards.
+
 2026-09-26 — global-user pass, part 3: peak hours in the reader's own clock
 
 - The PEAK chip only said "Peak hours: priority halved", while the windows it warns about are expressed in the provider's timezone — useless for anyone living elsewhere. The chip's title is now built by `peakWindowText`, which prints the provider window with its zone and, when the reader is somewhere else, the same window converted to their local clock: `Peak hours: Mon–Fri 14:00–18:00 (Asia/Shanghai) = 02:00–06:00 your time`. Offsets come from `Intl` at the current instant rather than a hardcoded +8, so daylight saving is handled; the provider zone stays in the string so a DST-transition day cannot quietly mislead. Midnight-wrapping windows render as `23:00–01:00` instead of negative minutes.

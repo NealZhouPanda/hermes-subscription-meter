@@ -512,20 +512,52 @@ function rowPriority(row, now) {
   return subscriptionOnly && activePeakRule(row, now) ? priority / 2 : priority
 }
 
+// 可用性（2026-09-26 Neal 定）：排序维度仍只看主窗（09-10 定「5h 不参与排序」），但
+// 「现在能不能用」是另一件事——短窗用满 / 主窗用尽时该行一点也调不动，不能占推荐位。
+// 判据 = 主窗还有剩 **且** 短窗还有剩；份额（burstShare）不参与判断——份额只决定锁定段
+// 画多长（lockedRemainingCellCount），与「还能不能用」无关。没有短窗兄弟 → 只看主窗。
+// unlockAt = 什么时候能再用：被短窗卡住（主窗还有剩）→ 短窗重置时刻；主窗用尽 → 主窗重置时刻。
+function availabilityOf(row, sibling) {
+  const weeklyRemaining = 100 - clamp(Number(row?.usedPercent) || 0, 0, 100)
+  const shortRemaining = sibling ? 100 - clamp(Number(sibling.usedPercent) || 0, 0, 100) : null
+  const available = weeklyRemaining > 0 && (shortRemaining === null || shortRemaining > 0)
+  const shortBlocks = weeklyRemaining > 0 && shortRemaining !== null && shortRemaining <= 0
+  const unlockAt = shortBlocks
+    ? (toEpochMillis(sibling.resetAt) ?? toEpochMillis(row.resetAt))
+    : toEpochMillis(row.resetAt)
+  return { available, unlockAt: unlockAt ?? Infinity }
+}
+
 function orderRowsForDisplay(rows, now) {
-  // 单键优先度排序（2026-09-09 Neal 定「蓝绿比」）：P 见 rowPriority（盈余÷未流逝）。
-  // 高峰减半保留；同分（分数完全相等，如两行都用满 −1）按重置近在前兜底；余额/错误行恒在队尾。
-  // 无/非法 resetAt → Infinity 沉底；判据统一走 toEpochMillis（null/0/负数/非数 → null），
-  // 不再各处自写 Number() 守卫——Number(null)=0 是有限数，漏挡一次就沉不了底。
-  // 短窗附属化（2026-09-10 Neal 定）：5h 行不参与排序——5h 是撞墙预警显示器
-  // （起因=GLM 富余多跑长任务却在 5h 撞墙中断），不是独立供给池，周行排序
-  // 不再取 min(周P, 5hP)；渲染仍用 findFiveHourSibling 算锁定段。
+  // 分档排序（2026-09-26 加档）：① 能用（P 见 rowPriority：盈余÷未流逝，09-09 Neal 定的
+  // 「蓝绿比」）→ ② 用不了（可用性见 availabilityOf，按解封时刻近者在前）→ ③ 数据缺失
+  // （无/非法 resetAt，P 无效）→ 余额行恒在队尾。
+  // 高峰减半、同分按重置近在前兜底保留；无/非法 resetAt 的判据统一走 toEpochMillis
+  // （null/0/负数/非数 → null），不再各处自写 Number() 守卫——Number(null)=0 是有限数，
+  // 漏挡一次就沉不了底。
+  // 短窗附属化（2026-09-10 Neal 定）不变：5h 行不参与排序（5h 是撞墙预警显示器，
+  // 不是独立供给池，周行排序不取 min(周P, 5hP)）；这里只把「5h 用满 = 用不了」当门槛，
+  // 不拿 5h 的 P 比大小。渲染仍用 findFiveHourSibling 算锁定段。
   const eta = row => toEpochMillis(row.resetAt) ?? Infinity
   const quotaRowsAll = collapseDuplicateQuotaRows(rows.filter(row => row.kind === 'quota'))
-  const quota = quotaRowsAll
-    .sort((a, b) => (rowPriority(b, now) - rowPriority(a, now)) || (eta(a) - eta(b)))
+  const usable = []
+  const blocked = []
+  const unknown = []
+  for (const row of quotaRowsAll) {
+    if (rowPriority(row, now) === -Infinity) {
+      unknown.push(row)
+      continue
+    }
+    const availability = availabilityOf(row, findFiveHourSibling(row, rows))
+    if (availability.available) usable.push(row)
+    else blocked.push({ row, unlockAt: availability.unlockAt })
+  }
+  usable.sort((a, b) => (rowPriority(b, now) - rowPriority(a, now)) || (eta(a) - eta(b)))
+  blocked.sort((a, b) => (a.unlockAt - b.unlockAt) || (eta(a.row) - eta(b.row)))
   return [
-    ...quota,
+    ...usable,
+    ...blocked.map(entry => entry.row),
+    ...unknown,
     ...rows.filter(row => row.kind !== 'quota')
   ]
 }

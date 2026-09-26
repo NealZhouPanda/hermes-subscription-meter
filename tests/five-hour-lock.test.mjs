@@ -13,7 +13,8 @@ const pluginSource = readFileSync(new URL('../desktop/plugin.js', import.meta.ur
 // 提取排序相关函数（同 peak-capsule.test.mjs 的提取方式）
 // ---------------------------------------------------------------------------
 function loadSortFns() {
-  const names = ['orderRowsForDisplay', 'rowPriority', 'activePeakRule', 'localClockAt', 'peakRuleHit', 'collapseDuplicateQuotaRows', 'quotaCycleMs', 'clamp', 'toEpochMillis']
+  const names = ['orderRowsForDisplay', 'rowPriority', 'activePeakRule', 'localClockAt', 'peakRuleHit', 'collapseDuplicateQuotaRows', 'quotaCycleMs', 'clamp', 'toEpochMillis',
+    'availabilityOf', 'findFiveHourSibling', 'burstShareOf', 'normalizeBurstShare', 'numericOrNull']
   const snippets = names.map(name => {
     const match = pluginSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}`))
     assert.ok(match, `function ${name} must exist in plugin.js`)

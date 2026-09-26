@@ -6,7 +6,8 @@ const pluginSource = readFileSync(new URL('../desktop/plugin.js', import.meta.ur
 
 // Extract the priority/sort functions + module constants so tests run the real code.
 function loadFns() {
-  const names = ['orderRowsForDisplay', 'rowPriority', 'activePeakRule', 'localClockAt', 'peakRuleHit', 'surplusBlocks', 'collapseDuplicateQuotaRows', 'quotaCycleMs', 'clamp', 'toEpochMillis']
+  const names = ['orderRowsForDisplay', 'rowPriority', 'activePeakRule', 'localClockAt', 'peakRuleHit', 'surplusBlocks', 'collapseDuplicateQuotaRows', 'quotaCycleMs', 'clamp', 'toEpochMillis',
+    'availabilityOf', 'findFiveHourSibling', 'burstShareOf', 'normalizeBurstShare', 'numericOrNull']
   const snippets = names.map(name => {
     const match = pluginSource.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}`))
     assert.ok(match, `function ${name} must exist in plugin.js`)
