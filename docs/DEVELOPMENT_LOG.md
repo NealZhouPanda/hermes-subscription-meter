@@ -1,5 +1,10 @@
 # Development Log
 
+2026-09-26 — 0.4.0 released
+
+- `plugin.yaml` goes 0.3.0 → 0.4.0, tagging the eight commits since `v0.3.0`. Two of them change what the panel shows (a colour-vision mode; out-of-quota rows sinking below the rows you can still call), the rest fix what the columns and the copy were getting wrong. Nothing here changes the ranking score itself, and the 5-hour window still takes no part in it.
+- The release notes on GitHub carry the same list, grouped as "the panel" and "under the hood"; nothing shipped that is not already described in this log below.
+
 2026-09-26 — a floor under the high-contrast palette
 
 - The colour-vision palette fixed the worst state pair (available green ↔ surplus sky blue, ΔE 12.3 → 52.7 under the Machado simulation) but six of the nine pairs moved the other way — `green ↔ orange` 35.9 → 19.2, `blueLocked ↔ orange` 82.1 → 32.8, and so on — and six pairs still miss the 3:1 luminance reading of WCAG 1.4.1 (`green ↔ greenLocked` even fell from 2.37:1 to 1.90:1). Around 19 stays in the "clearly different" band, so the palette is kept as is; what it must not do is drift further.

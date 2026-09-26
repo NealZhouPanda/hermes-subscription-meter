@@ -1,6 +1,6 @@
 name: subscription-meter
 kind: standalone
-version: 0.3.0
+version: 0.4.0
 description: "Subscription quota dashboard — per-provider show/hide from the UI; plans render as 84 cells, account rows show balance."
 provides_tools: []
 config_schema:
