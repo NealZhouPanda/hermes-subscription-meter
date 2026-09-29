@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+import types
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -83,6 +84,83 @@ def test_discovered_providers_follow_settings_contract():
         assert item.kind in ("quota", "balance")
         assert item.status in ("no_fetcher", "unrecognized") or item.id in fetchable
     assert all(item.enabled for item in payload.providers)
+
+
+class _FakeProvider:
+    def __init__(self, pid, name, env_vars):
+        self.id = pid
+        self.name = name
+        self.api_key_env_vars = env_vars
+
+
+def test_build_payload_emits_no_fetcher_placeholder(monkeypatch):
+    """识别成功但无适配器（如内置 xiaomi/MiMo）：不再静默消失，下发占位行。
+
+    占位行契约（2026-09-29 Neal 定）：有 provider 名、无任何数值
+    （金额/百分比一律 None）、status/gap = no_fetcher；设置页开关仍照常生效。
+    Hermes 供应方登记用桩替换（测试隔离环境没有 hermes_cli.auth）。
+    """
+    registry = types.ModuleType("hermes_cli.auth")
+    registry.PROVIDER_REGISTRY = {
+        "xiaomi": _FakeProvider("xiaomi", "MiMo", ("XIAOMI_API_KEY",))
+    }
+    monkeypatch.setitem(sys.modules, "hermes_cli.auth", registry)
+    monkeypatch.setattr(plugin_api, "_registry_env_vars",
+                        lambda: {"XIAOMI_API_KEY": ("xiaomi", "MiMo")})
+    write_env({"XIAOMI_API_KEY": "xiaomi-fixture"})
+    plugin_api._cache.update(at=0.0, payload=None, identity_overrides={})
+
+    payload = plugin_api.build_payload()
+    placeholders = [row for row in payload.rows if row.gap == "no_fetcher"]
+
+    assert placeholders, "识别成功但无适配器的 provider 必须有占位行，不许静默少画"
+    row = placeholders[0]
+    assert row.providerId == "xiaomi"
+    assert row.label == "MIMO", "显示名取 identity.yaml 声明（xiaomi 入表后走槽位先验 label_kind）"
+    assert row.status == "no_fetcher"
+    assert row.usedPercent is None, "没有数据不得伪装成 0%"
+    assert row.balance is None
+    assert row.resetAt is None
+    assert row.windowSeconds is None
+    assert row.kind == "balance", "MiMo 只有余额无订阅，占位行落余额区（2026-09-29 Neal 定）"
+
+
+def test_build_payload_placeholder_respects_visibility(monkeypatch):
+    """被关掉的 no_fetcher provider 不出行（与取数条目同一道可见性闸门）。"""
+    monkeypatch.setattr(plugin_api, "_registry_env_vars",
+                        lambda: {"XIAOMI_API_KEY": ("xiaomi", "MiMo")})
+    write_env({"XIAOMI_API_KEY": "xiaomi-fixture"})
+    plugin_api._cache.update(at=0.0, payload=None, identity_overrides={})
+    monkeypatch.setattr(
+        plugin_api,
+        "_read_plugin_settings",
+        lambda: {"visibility": {"xiaomi": False}},
+    )
+
+    payload = plugin_api.build_payload()
+
+    assert all(row.providerId != "xiaomi" for row in payload.rows)
+
+
+def test_fetch_error_rows_still_carry_no_gap_code(monkeypatch):
+    """取数失败的行不沾 no_fetcher 原因码——那是「没适配器」专用，不与错误混用。"""
+    write_env({"KIMI_API_KEY": "sk-kimi-fixture"})
+    plugin_api._cache.update(at=0.0, payload=None, identity_overrides={})
+
+    def fake_fetch(provider_id, label):
+        def fetch(_now, secret=""):
+            return [plugin_api._row(provider_id, label, providerId=provider_id,
+                                    usedPercent=1.0, error=RuntimeError("boom"))]
+
+        return fetch
+
+    monkeypatch.setattr(plugin_api, "_fetch_kimi", fake_fetch("kimi", "KIMI"))
+
+    payload = plugin_api.build_payload()
+    kimi_rows = [row for row in payload.rows if row.providerId == "kimi"]
+
+    assert kimi_rows, "取数失败的 provider 仍要出行"
+    assert all(row.gap is None for row in kimi_rows), "失败行不得标成 no_fetcher"
 
 
 def test_provider_settings_apply_saved_visibility(monkeypatch):

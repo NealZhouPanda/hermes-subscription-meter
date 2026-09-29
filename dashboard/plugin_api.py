@@ -107,8 +107,14 @@ class MeterRow(BaseModel):
     # 供应商事实（M2-StepA 起由 FetcherSpec.meta 在 build_payload 里抄进行）：accent=品牌色，
     # peakHours={timezone, daily, windows}。前端只读行上这两条，不按供应商名查表。
     accent: Optional[str] = None
+    # 同一家的第二套品牌色（2026-09-29）：accent = 亮主题值、accentDark = 暗主题值。
+    # 单值做不到「白底与深底都可读」（L* 只剩 47–62 一条窄带），所以按主题分两套；
+    # 前端按当前主题取，行上没有 accentDark 时回落到 accent（老数据/老供应商兼容）。
+    accentDark: Optional[str] = None
     peakHours: Optional[dict] = None
-    usedPercent: float = 0.0
+    # 占位行（2026-09-29Neal 定：识别成功但无适配器）usedPercent 置 None——
+    # 「没有数据」与「用了 0%」必须可区分，前端据此不画数值、不预测。
+    usedPercent: Optional[float] = None
     resetAt: Optional[float] = None
     balanceTone: Optional[str] = None
     todayTone: Optional[str] = None
@@ -123,6 +129,9 @@ class MeterRow(BaseModel):
     status: str = "unknown"
     actionHint: str = ""
     checkedAt: Optional[float] = None
+    # 缺事实原因码（2026-09-29）：行上说不清的事要写明（no_fetcher…），
+    # 前端禁止静默少画——口径与前端 normalizeRow 已预留的 gap 通道对齐。
+    gap: Optional[str] = None
 
 
 class MeterPayload(BaseModel):
@@ -189,7 +198,7 @@ _PROVIDER_KEYS = frozenset({"id", "shareable", "matchers", "meta"})
 _MATCHER_KEYS = frozenset({"prefixes", "oauth", "env_slots", "ledger_env", "label_kind"})
 _PREFIX_KEYS = frozenset({"prefix", "kind", "label"})
 _LABEL_KIND_KEYS = frozenset({"label", "kind"})
-_META_KEYS = frozenset({"accent", "peakHours"})
+_META_KEYS = frozenset({"accent", "accentDark", "peakHours"})
 _PEAK_KEYS = frozenset({"timezone", "daily", "windows"})
 
 
@@ -278,6 +287,11 @@ def _load_meta(value: Any, where: str) -> dict[str, Any]:
         if not isinstance(accent, str) or not accent:
             raise IdentityTableError(f"{where}.accent: expected a non-empty string")
         meta["accent"] = accent
+    if "accentDark" in value:
+        accent_dark = value["accentDark"]
+        if not isinstance(accent_dark, str) or not accent_dark:
+            raise IdentityTableError(f"{where}.accentDark: expected a non-empty string")
+        meta["accentDark"] = accent_dark
     if "peakHours" in value:
         meta["peakHours"] = _load_peak_hours(value["peakHours"], f"{where}.peakHours")
     return meta
@@ -529,6 +543,11 @@ def _classify_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     fetcher_id = _slot_match_id(candidate["env_name"])
     if fetcher_id:
         label, kind = _label_kind(fetcher_id)
+        if not _has_fetcher(fetcher_id):
+            # 槽位认得出是哪家但没有取数适配器（如 xiaomi/MiMo）：no_fetcher 占位。
+            # fetcher_id 必须置 None，否则 build_payload 会把 None 当取数器调用。
+            return _identity(fetcher_id, label, kind, None, "slot",
+                             f"env:{candidate['env_name']}", candidate["env_name"], candidate["secret"])
         return _identity(fetcher_id, label, kind, fetcher_id, "slot",
                          f"env:{candidate['env_name']}", candidate["env_name"], candidate["secret"])
     # Hermes 登记槽位已经能认出是哪家：没有取数适配器 → no_fetcher，不是 unrecognized。
@@ -905,7 +924,6 @@ _ACTION_HINTS = {
     "minimax": "Set MINIMAX_API_KEY (Token Plan subscription key) in the current profile's .env; pay-as-you-go keys do not apply.",
     "anthropic": "Anthropic credential recognized; no fetcher adapter yet.",
     "openrouter": "OpenRouter credential recognized; no fetcher adapter yet.",
-    "xai-inference": "An xAI inference key is not the Management balance; no fetcher adapter yet.",
     "qwen-dashscope": "A DashScope inference key is not an Alibaba Cloud AccessKey balance; no fetcher adapter yet.",
 }
 
@@ -2020,6 +2038,9 @@ def _apply_provider_meta(rows: list[MeterRow]) -> list[MeterRow]:
         accent = meta.get("accent")
         if accent and not row.accent:
             row.accent = accent
+        accent_dark = meta.get("accentDark")
+        if accent_dark and not row.accentDark:
+            row.accentDark = accent_dark
         peak = meta.get("peakHours")
         if peak and not row.peakHours:
             # 逐行重建嵌套结构，避免多行共享同一份 windows 列表。
@@ -2032,7 +2053,7 @@ def _apply_provider_meta(rows: list[MeterRow]) -> list[MeterRow]:
 
 
 def build_payload() -> MeterPayload:
-    """只对 visibility 开启、识别成功、且有适配器的条目取数。"""
+    """取数条目 = visibility 开启且识别成功；有适配器的取数，没有的下发 no_fetcher 占位行。"""
     now = time.time()
     cached = _cache["payload"]
     if cached is not None and now - _cache["at"] < CACHE_TTL_SECONDS:
@@ -2046,7 +2067,23 @@ def build_payload() -> MeterPayload:
     for identity in _identify_all():
         if visibility.get(identity["id"], True) is False:
             continue
-        if identity["status"] in ("no_fetcher", "unrecognized") or not identity["fetcher_id"]:
+        if identity["status"] == "unrecognized":
+            continue
+        if not identity["fetcher_id"]:
+            # 识别成功但没有取数适配器（如 MiMo）：不再静默消失，按 2026-09-29 Neal
+            # 的通用占位机制下发一行——有名字、无数值、带 gap 原因码，看板上明说
+            # 「还没有适配器」而不是装作这家不存在。
+            rows.append(
+                _row(
+                    identity["id"],
+                    identity["label"],
+                    providerId=identity["id"],
+                    kind=identity["kind"],
+                    status="no_fetcher",
+                    actionHint=_NO_FETCHER_HINT,
+                    gap="no_fetcher",
+                )
+            )
             continue
         rows.extend(_fetch_identity_rows(identity, now, overrides))
 

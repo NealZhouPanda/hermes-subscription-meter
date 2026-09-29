@@ -25,9 +25,9 @@ catalog.json / sources.jsonl / README.md / MAINTENANCE.md / validation.json / re
 - 未查到的能力一律记为「本次未查到/未核实」，不声明全网不存在。
 
 ## 程序验证结果
-validation.json status=pass：12 家唯一 id，24 个产品线，42 条唯一来源 URL（每条证据单一 URL），来源全部可回溯到 batch-a/b 原始证据，46 条证据行；全部 URL 可解析、全部 JSON 可解析。
+validation.json status=pass：12 家唯一 id，24 个产品线，46 条唯一来源 URL（每条证据单一 URL），50 条证据行（2026-09-23 追加 Kimi 4 条，旧行未改）；全部 URL 可解析、全部 JSON 可解析。
 
 ## 边界声明
-- 无真实账户测试：所有查询接口均为文档/来源级核验，未用真实 key 实调。
+- 真实账户测试仅 Kimi Code 额度一处（2026-09-23，coding key 实调 `/coding/v1/usages` 与订阅页月额度口）。其余查询接口仍是文档/来源级核验，未用真实 key 实调。
 - 无自动更新：维护见 MAINTENANCE.md，纯手工流程，无定时任务。
 - git 仅新增 docs/provider-research/20260922/ 目录，不改已有代码/文档，不提交不推送。

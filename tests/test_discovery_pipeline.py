@@ -132,14 +132,28 @@ def test_visibility_false_stays_in_settings_but_not_in_data(monkeypatch):
     assert called == []
 
 
-def test_credential_without_fetcher_is_no_fetcher():
-    """xAI 推理 key（xai- 前缀）可识别但无账本适配器 → no_fetcher，看板不占行。"""
-    write_env({"XAI_API_KEY": "xai-fixture-0005"})
+def test_credential_without_fetcher_is_no_fetcher(monkeypatch):
+    """xai 推理前缀已随 xai-inference 条目移除（2026-09-29 Neal：XAI 全家余额型，
+    订阅行多此一举）；该机制的占位行为由 test_plugin_api.py 的 xiaomi 用例钉住。
+    此测试改用 xiaomi（XIAOMI_API_KEY 槽位识别、无 fetcher → 余额区占位行）。
+    槽位表打桩：测试环境没有 hermes_cli.auth（历史环境问题），把 XIAOMI_API_KEY
+    桩进 registry 槽位表，与 test_identity_accents 的做法同源。
+    """
+    monkeypatch.setattr(plugin_api, "_registry_env_vars",
+                        lambda: {"XIAOMI_API_KEY": ("xiaomi", "MiMo")})
+    write_env({"XIAOMI_API_KEY": "fixture-xiaomi-0005"})
     providers = {p.id: p for p in plugin_api.get_provider_settings().providers}
-    entry = providers["xai-inference"]
+    entry = providers["xiaomi"]
     assert entry.status == "no_fetcher"
     _reset_cache()
-    assert plugin_api.build_payload().rows == []
+    rows = plugin_api.build_payload().rows
+    assert [row.providerId for row in rows] == ["xiaomi"]
+    row = rows[0]
+    assert row.gap == "no_fetcher"
+    assert row.status == "no_fetcher"
+    assert row.usedPercent is None
+    assert row.balance is None
+    assert row.kind == "balance"
 
 
 def test_oauth_providers_discovered_from_auth_json():

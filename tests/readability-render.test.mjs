@@ -218,12 +218,12 @@ test('failed quota row keeps no surplus prediction', async () => {
   assert.ok(!/−\d+\.\d+ cells/.test(text), 'failed rows must not render a deficit figure')
 })
 
-test('spend and balance amounts never change color with magnitude (neutral fixed tones)', async () => {
+test('balance rows reuse the provider accent (dot + BALANCE value); spend stays neutral; unavailable rows go grey', async () => {
   const sandbox = buildSandbox({
     responses: [() => ({
       rows: [
-        { id: 'deepseek', providerId: 'deepseek', label: 'DEEPSEEK', kind: 'balance', balance: 0.01, todaySpend: 9999, sevenDaySpend: 9999, thirtyDaySpend: 9999, currency: 'CNY' },
-        { id: 'xai', providerId: 'xai', label: 'XAI', kind: 'balance', balance: 100000, currency: 'USD' }
+        { id: 'nous', providerId: 'nous', label: 'NOUS', kind: 'balance', accent: '#6366F1', balance: 0.01, todaySpend: 9999, sevenDaySpend: 9999, thirtyDaySpend: 9999, currency: 'CNY' },
+        { id: 'xai', providerId: 'xai', label: 'XAI', kind: 'balance', balance: 0, currency: 'USD' }
       ]
     })]
   })
@@ -234,14 +234,25 @@ test('spend and balance amounts never change color with magnitude (neutral fixed
     typeof node.props?.style?.color === 'string' &&
     textOf([node]).match(/^[$¥]/))
   assert.ok(colored.length >= 4, 'all money metrics must render')
+  const nousAccent = '#6366F1'
   const neutral = 'var(--ui-text-quaternary)'
+  const grey = '#404040'
+  // 存量需求①修正（2026-09-29 Neal 看板实测异议，推翻当日早前的「全局余额紫」）：
+  // BALANCE 圆点与金额用**该供应方的 accent**（后端 _apply_provider_meta 抄进行，
+  // 与订阅行圆点同源同色）；行上没 accent 才落兜底紫（兜底口径钉在 placeholder-rows）。
+  // TODAY/7D/30D 仍是中性灰（需求只点名余额一处）。
   for (const node of colored) {
-    assert.equal(node.props.style.color, neutral, 'money values must use the fixed neutral theme color regardless of amount')
+    const isBalance = textOf([node]).startsWith('¥0.01')
+    assert.equal(
+      node.props.style.color,
+      isBalance ? nousAccent : neutral,
+      isBalance ? 'BALANCE value must reuse the provider accent' : 'spend values stay neutral')
   }
+  // 存量需求②：余额 0（XAI）→ 整行灰：圆点灰。NOUS（0.01>0）圆点 = 供应方 accent。
   const dots = nodes.filter(node => node.props?.className?.includes('rounded-full'))
-  for (const dot of dots) {
-    assert.equal(dot.props.style.backgroundColor, neutral, 'balance row dots must be fixed neutral')
-  }
+  const dotColors = dots.map(dot => dot.props.style.backgroundColor)
+  assert.ok(dotColors.includes(nousAccent), 'available balance dot keeps the provider accent')
+  assert.ok(dotColors.includes(grey), 'balance-0 dot must go grey')
 })
 
 test('settings save failure notifies a fixed safe message, never raw error text', async () => {
@@ -286,7 +297,7 @@ test('legend explains cell duration uniformly (84 cells, 2 hours per cell)', asy
   assert.ok(panelText.includes('84 cells'), 'cell duration must reference the 84-cell matrix')
   assert.ok(panelText.includes('2 hours'), 'each cell must be called out as 2 hours')
   assert.ok(/provider/i.test(panelText), 'provider dot vs matrix color distinction must be present')
-  // 原 10 条整体说明原文（与设置窗口「使用说明」分区一致）。
+  // 说明原文（与设置窗口「使用说明」分区一致；2026-09-29 起余额色/灰行两条更新 + 新增灰行说明）。
   const WHOLE_HELP_TEXTS = [
     '84 cells align quota with cycle time; each cell = window / 84 (a 7-day window = 2 hours).',
     'Green: remaining available quota',
@@ -294,10 +305,11 @@ test('legend explains cell duration uniformly (84 cells, 2 hours per cell)', asy
     'Sky blue: surplus available quota',
     'Dark blue: surplus quota locked by the 5h window',
     'Orange: over-consumed quota',
-    'The dot by a plan name distinguishes providers — not cell colors or balance status.',
+    'The dot by a plan name distinguishes providers; balance rows use the same provider colour as the plan dot — grey marks a row you cannot use right now.',
     '"N% left" = remaining quota (not used). "Reset" = time until the next cycle.',
     '"Unknown —" = no quota percentage returned, so no surplus is shown.',
-    '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.'
+    '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.',
+    'Grey row = unavailable right now: balance spent or at its cap, or the 5-hour / weekly window is used up. Matrix colors are unchanged — it is a row state, not a new quota tier.'
   ]
   // 五色图例：设置说明里每条文字须配真实色值色块，一一对应。
   const SWATCH_CONTRACT = [

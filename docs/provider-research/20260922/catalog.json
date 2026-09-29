@@ -656,18 +656,19 @@
           "region": "CN api.kimi.com/coding",
           "auth_kind": "api-key（或官方客户端 OAuth）",
           "key_format": {
-            "prefix": null,
+            "prefix": "sk-kimi-（本账户实见；官方文档仍未明示前缀，不作为官方规范）",
             "structure": "Kimi Code 控制台创建，最多5个，仅创建时显示一次",
-            "evidence_level": "docs-partial"
+            "evidence_level": "live-account"
           },
           "usage_query": {
             "kind": "quota",
-            "endpoint": null,
-            "method": null,
-            "auth": null,
-            "official_status": "not-found",
-            "reset": "每5小时约300-1200次请求，并发上限30",
-            "note": "无公开查询 API——未核实；与开放平台 key 是否通用未核实"
+            "endpoint": "GET https://api.kimi.com/coding/v1/usages",
+            "method": "GET",
+            "auth": "Bearer <Kimi Code key>",
+            "official_status": "live-verified",
+            "units": "usage/limits 为 used/limit 绝对值；usages.* 为 used_ratio",
+            "reset": "5小时滚动窗 + 7天窗（本账户旧套餐 Moderato）。月总额度不在这个响应里。",
+            "note": "2026-09-22「无公开查询 API」已纠正。2026-09-23 本账户 coding key 实调 HTTP 200：顶层 usage=7天（limit/used/remaining/resetTime）；limits[] 里 duration=300、timeUnit=TIME_UNIT_MINUTE 即 5小时；usages.limit_5h 与 usages.limit_7d 是比例版。本账户没有 usages.limit_month_*。GET /coding/v1/me：user_level_name=Moderato、goods_version=1（旧套餐）。订阅页「总使用量」是另一口：POST https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats，字段 subscription_balance.amount_used_ratio，另有 ratelimit_code_5h / ratelimit_code_7d。该口要网页登录，同一把 coding key 返回 401。社区另有账户在 usages 里带 limit_month_total，本账户未复现，不把「本账户没有」写成全体结论。插件不接网页登录口，不编月行。"
           }
         }
       ],
@@ -678,15 +679,15 @@
           "evidence_level": "docs-partial"
         },
         {
-          "prefix": null,
+          "prefix": "sk-kimi-（本账户实见；官方文档仍未明示前缀，不作为官方规范）",
           "structure": "Kimi Code 控制台创建，最多5个，仅创建时显示一次",
-          "evidence_level": "docs-partial"
+          "evidence_level": "live-account"
         }
       ],
       "unresolved": [
-        "key 前缀官方未明示",
+        "key 前缀官方文档仍未明示（本账户实见 sk-kimi-，不是官方规范）",
         "Kimi Code key 与开放平台 key 是否通用",
-        "Coding 额度查询 API 未核实"
+        "其他账户 coding usages 是否带 limit_month_total：社区有报告，本账户未复现"
       ],
       "sources": [
         {
@@ -696,10 +697,22 @@
         {
           "url": "https://www.kimi.com/help/kimi-code/membership-guide",
           "quote": "Kimi Code 订阅（Kimi 会员编程权益）用独立 key：Kimi Code 控制台创建（最多5个），端点 api.kimi.com/coding/v1（OpenAI）与 /coding/（Anthropic），模型 kimi-for-coding；官方客户端可 OAuth"
+        },
+        {
+          "url": "https://www.kimi.com/code/docs/en/kimi-code/membership.html",
+          "quote": "新旧套餐都有 Monthly total quota；新会员去掉周额度、只留 5 小时滚动窗。月用量在 Subscription page 查看。旧套餐仍按订阅日起每 7 天刷新。"
+        },
+        {
+          "url": "https://api.kimi.com/coding/v1/usages",
+          "quote": "2026-09-23 本账户 coding key 实调 HTTP 200：usage（7天绝对值）、limits[] 300分钟（5小时）、usages.limit_5h 与 limit_7d。无月字段。"
+        },
+        {
+          "url": "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats",
+          "quote": "订阅页「总使用量」来自此接口的 subscription_balance.amount_used_ratio。同一 coding key 调用返回 401 invalid user token。"
         }
       ],
-      "verified_at": "2026-09-22",
-      "verification_method": "docs"
+      "verified_at": "2026-09-23",
+      "verification_method": "live-account+docs"
     },
     {
       "id": "minimax",

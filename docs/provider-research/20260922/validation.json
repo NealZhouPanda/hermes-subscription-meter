@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
-  "validated_at": "2026-09-22",
-  "method": "stdlib assertions: required fields, 12 unique provider ids, single URL per source entry (regex), source-link back-trace to batch-a/b originals, URL/JSON parse check, over-assertion residue scan",
+  "validated_at": "2026-09-23",
+  "method": "stdlib assertions: required fields, 12 unique provider ids, single URL per source entry, URL/JSON parse check. 2026-09-23 recount after Kimi live-account rows were appended; old evidence rows were not rewritten.",
   "providers_expected": 12,
   "providers_found": 12,
   "provider_ids": [
@@ -19,8 +19,8 @@
     "baidu-qianfan"
   ],
   "total_products": 24,
-  "total_source_urls": 42,
-  "evidence_rows": 46,
+  "total_source_urls": 46,
+  "evidence_rows": 50,
   "single_url_per_source_entry": true,
   "url_parse_check": true,
   "json_parse_check": true,

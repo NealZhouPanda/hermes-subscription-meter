@@ -134,7 +134,8 @@ def test_provider_meta_is_copied_onto_rows():
         [int(start), int(end)]
         for start, end in plugin_api._provider_meta("glm")["peakHours"]["windows"]
     ]
-    assert deepseek.accent is None and deepseek.peakHours["windows"]
+    assert deepseek.accent == plugin_api._provider_meta("deepseek")["accent"], (
+        "2026-09-29 全量补色后 deepseek 也带 accent（peakHours 照旧）")
     assert zeta.accent is None and zeta.peakHours is None
 
 

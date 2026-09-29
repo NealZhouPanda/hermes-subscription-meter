@@ -1,6 +1,6 @@
 # 供应商资料库（2026-09-22 草稿）
 
-合并 batch-a/b 12 家候选供应商的 key 规则与余额/额度查询方式。状态：draft，未经真实账户实测。来源与证据等级见 catalog.json 与 sources.jsonl。
+合并 batch-a/b 12 家候选供应商的 key 规则与余额/额度查询方式。状态：draft。除下方 Kimi Code 额度于 2026-09-23 用真实 coding key 实调外，其余仍是文档级，未经真实账户实测。来源与证据等级见 catalog.json 与 sources.jsonl。
 
 ## 总表（12 家）
 
@@ -14,7 +14,7 @@
 | 字节·火山方舟 | volcengine-ark | 各类 key 格式官方公开资料本次未查到（unverified） | 管控面 OpenAPI ListUsage / GetCodingPlanUsage / GetAFPUsage（AK/SK SigV4；字段规格部分本次未查到） | 推理 Bearer key 与火山 AK/SK 两套凭据，互不可代替 | Coding/Agent Plan key 与后付费 key 格式异同未核实 |
 | 阿里云百炼 | aliyun-bailian | 通用 sk-、Coding Plan sk-sp-（docs-prefix-only）；两家 sk-sp- 前缀重合，仅记录文档所见 | BSS QueryAccountBalance + GetBillingOverview（official-documented，AK/SK/RAM）；Coding Plan 额度查询接口未核实，已查到的途径为控制台 | 阿里云 AK/SK 或 RAM | 通用 key 精确长度规范本次未查到；Coding Plan 查询 API 未核实 |
 | 智谱 AI | zhipu-glm | id.secret 两段点分（docs-structure-only）；前缀本次未查到 | 公开余额/积分查询 API 本次未查到；已查到的途径为控制台查看 | Bearer 直用或派生 JWT | 个人版 Coding key 与按量 key 是否同 key 未证实 |
-| 月之暗面 Kimi | moonshot-kimi | 社区见 sk-（community 级）；Kimi Code key 控制台创建仅显示一次 | GET /v1/users/me/balance（official-documented，含 available/voucher/cash_balance） | Bearer API key | Coding 额度查询 API 未核实；两套 key 是否通用未核实 |
+| 月之暗面 Kimi | moonshot-kimi | 本账户实见 sk-kimi-（官方前缀仍未明示）；Kimi Code key 控制台创建仅显示一次 | Coding：GET api.kimi.com/coding/v1/usages（live-verified，5小时+7天）；开放平台余额 GET /v1/users/me/balance（official-documented）；月总额度在订阅页 GetSubscriptionStats（网页登录，coding key 401） | Bearer coding key 与网页登录分开 | 两套 key 是否通用未核实；其他账户 usages 是否带月字段，本账户未复现 |
 | MiniMax | minimax | 两类 key 前缀官方文档未给出，本次未查到（社区传闻不采信） | 订阅 Token Plan：GET /v1/token_plan/remains（official-documented，属套餐额度 quota 非现金余额）；按量余额查询接口未核实，已查到的途径为控制台 | Bearer 订阅 Key | 按量余额公开 API 本次未查到 |
 | 腾讯云混元/TokenHub | tencent-hunyuan | 按量 sk-、Coding Plan sk-sp-、TokenHub sk-tp-（官方脱敏示例，docs 级）；sk-sp- 与阿里重合仅记录文档所见 | DescribeAccountBalance（official-documented，AK/SK）；TokenHub DescribeTokenPlanList 等（official-documented）；Coding Plan 用量查询接口未核实，已查到的途径为控制台 | 腾讯云 AK/SK / Bearer key | 按量 key 长度规范本次未查到；剩余额度专用接口等价性未核实 |
 | 百度千帆 | baidu-qianfan | bce-v3/ALTAK- 官方示例所见（docs-example-partial）；Coding Plan key 前缀本次未查到 | /v1/finance/cash/balance 账号级余额（official-documented，AK/SK）；Coding Plan 用量查询接口未核实，已查到的途径为控制台 | BCE AK/SK 签名 / Bearer key | 资源包/点数余量查询接口未核实 |
@@ -28,6 +28,6 @@
 
 ## 文件
 - catalog.json：结构化主档（schema_version 1.0, status=draft, 12 providers）
-- sources.jsonl：46 条公开证据（含 URL/引文/验证方式）
+- sources.jsonl：50 条公开证据（含 URL/引文/验证方式；46 条 2026-09-22 原始 + 2026-09-23 Kimi 4 条）
 - validation.json：stdlib 程序校验结果（pass）
 - MAINTENANCE.md：维护方式

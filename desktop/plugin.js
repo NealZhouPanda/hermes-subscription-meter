@@ -295,6 +295,12 @@ function useMeasuredTracks(rows, now) {
   return tracks
 }
 
+// 不可用灰（2026-09-29 Neal 存量需求②「用不了的条目整行变灰」）：余额 0 / 5h 用满 /
+// 周窗用满 / 余额触顶 → 整行换这个灰。可用性状态色，不是新的消耗档（图例另说）。
+// #404040 对两套配色的全部语义色 ΔE ≥21.7（最差 greenLocked），灰阶里与所有档位最远；
+// 挂进两套调色板的 gray 键（paletteFor 唯一入口），图例色块与行渲染同源。
+const UNAVAILABLE_GRAY = '#404040'
+
 // 五色图例配色（2026-09-12 Neal 定，色值取自 Neal 截图逐像素取样）：
 // 绿/蓝各分可用（浅）/受限（深）两档，受限 = 5h 短窗锁定（NOT 高峰）；
 // 橙 = 超额使用。灰 track（已流逝+已消耗）截图图例未画，矩阵仍保留。
@@ -306,7 +312,8 @@ const COLORS = {
                           // 在周剩余区末尾，实物格可能为 0，图例仍保留此项）
   orange: '#F39800',      // 橙：超额使用额度（未流逝+已消耗，不分锁定）
   track: 'var(--ui-bg-quaternary)',
-  danger: 'var(--ui-danger, #f87171)'
+  danger: 'var(--ui-danger, #f87171)',
+  gray: UNAVAILABLE_GRAY
 }
 
 // 高对比度（服务色觉异常）配色 —— 2026-09-26 Neal 定：
@@ -360,8 +367,71 @@ function notifySettingsChanged() {
   }
 }
 
+// 供应方 accent 分主题两套（2026-09-29）：identity.yaml 的 accent = 亮主题值、
+// accentDark = 暗主题值。单值做不到「白底与深底都可读」（明度只剩 L* 47–62
+// 一条窄带），所以按当前主题取；行上没有 accentDark（老数据/没配的家）时用 accent。
+let activeColorScheme = 'light'
+
+function readColorScheme() {
+  try {
+    const declared = document?.documentElement?.style?.colorScheme
+    if (declared === 'dark' || declared === 'light') return declared
+  } catch (error) {
+    // 宿主没有 document（测试沙箱）：落到媒体查询。
+  }
+  try {
+    return window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light'
+  } catch (error) {
+    return 'light'
+  }
+}
+
+// 主题切换是宿主改 <html> 的内联 color-scheme，不触发媒体查询事件，所以两路都听：
+// matchMedia（跟随系统时）+ 属性变化。取不到宿主 API 就静默留在亮色，不报错。
+function useColorScheme() {
+  const [scheme, setScheme] = useState(readColorScheme)
+  useEffect(() => {
+    const sync = () => setScheme(readColorScheme())
+    sync()
+    let media = null
+    let observer = null
+    try { media = window.matchMedia?.('(prefers-color-scheme: dark)') || null } catch (error) { media = null }
+    media?.addEventListener?.('change', sync)
+    try {
+      if (typeof MutationObserver === 'function' && typeof document !== 'undefined') {
+        observer = new MutationObserver(sync)
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
+      }
+    } catch (error) { observer = null }
+    return () => {
+      media?.removeEventListener?.('change', sync)
+      observer?.disconnect?.()
+    }
+  }, [])
+  // 行组件是纯函数，取色时读这个模块变量：面板重渲染（本 hook 的状态变了）会带着
+  // 所有行一起重渲染，所以此刻写入的值就是本轮要用的值。
+  activeColorScheme = scheme
+  return scheme
+}
+
+function accentFor(row, scheme = activeColorScheme) {
+  if (!row) return null
+  return scheme === 'dark' && row.accentDark ? row.accentDark : (row.accent || null)
+}
+
 const isHighContrast = mode => mode === HIGH_CONTRAST_MODE
 const paletteFor = mode => (isHighContrast(mode) ? { ...COLORS, ...HIGH_CONTRAST_COLORS } : COLORS)
+// 余额兜底色（2026-09-29 Neal 存量需求①「余额条目上色」，同日看板实测纠正）：
+// 余额行的圆点与 BALANCE 金额的**主色 = 该供应方的 accent**（identity.yaml meta，
+// 后端 _apply_provider_meta 抄进行，与订阅行圆点同源同色）；行上没有 accent 时
+// （xai/qwen/deepseek 等未配 accent 的供应方）才落到这里这两只兜底紫。推翻
+// 2026-09-15「金额一律中性灰」的决定（有意变更，非回归）。选色要求 = 与两套配色的
+// 全部语义色 + 不可用灰都分得开（CIELAB ΔE，钉在 tests/color-modes.test.mjs 的
+// 「兜底色钉表」）：正紫 #8820e8 在全域扫描里对默认五色与灰全部 ≥28（最差
+// deep blue 28.0），三色盲模拟同样成立；高对比模式用亮紫红 #d75cd7（对 HC 五色
+// ≥28.9、vs 白底 3.28:1 可读）。
+const BALANCE_VALUE_COLORS = { default: '#8820e8', [HIGH_CONTRAST_MODE]: '#d75cd7' }
+const balanceValueColor = mode => (BALANCE_VALUE_COLORS[isHighContrast(mode) ? HIGH_CONTRAST_MODE : 'default'] ?? BALANCE_VALUE_COLORS.default)
 // 高对比度模式下格子的描边（挂到 outline 而不是 border/inset-shadow：outline 画在子元素之上，
 // 不会被格子里那条「已消耗」填充盖掉）。
 const HIGH_CONTRAST_CELL_OUTLINE = '1px solid rgba(128, 128, 128, 0.55)'
@@ -591,6 +661,14 @@ function rowPriority(row, now) {
 // 画多长（lockedRemainingCellCount），与「还能不能用」无关。没有短窗兄弟 → 只看主窗。
 // unlockAt = 什么时候能再用：被短窗卡住（主窗还有剩）→ 短窗重置时刻；主窗用尽 → 主窗重置时刻。
 function availabilityOf(row, sibling) {
+  // 余额行（kind!=='quota'，2026-09-29 Neal 存量需求②）：余额 0 或触顶 = 用不了。
+  // 触顶判据复用现有 accent（'cap'=已到余额上限，'low'=只是偏低）——不在此造第二套语义。
+  if (row && row.kind !== 'quota') {
+    if (row.error) return { available: false, unlockAt: Infinity }
+    const capReached = row.accent === 'cap'
+    const balanceExhausted = numericOrNull(row.balance) === 0
+    return { available: !capReached && !balanceExhausted, unlockAt: Infinity }
+  }
   const weeklyRemaining = 100 - clamp(Number(row?.usedPercent) || 0, 0, 100)
   const shortRemaining = sibling ? 100 - clamp(Number(sibling.usedPercent) || 0, 0, 100) : null
   const available = weeklyRemaining > 0 && (shortRemaining === null || shortRemaining > 0)
@@ -604,7 +682,7 @@ function availabilityOf(row, sibling) {
 function orderRowsForDisplay(rows, now) {
   // 分档排序（2026-09-26 加档）：① 能用（P 见 rowPriority：盈余÷未流逝，09-09 Neal 定的
   // 「蓝绿比」）→ ② 用不了（可用性见 availabilityOf，按解封时刻近者在前）→ ③ 数据缺失
-  // （无/非法 resetAt，P 无效）→ 余额行恒在队尾。
+  // （无/非法 resetAt，P 无效）→ 余额行恒在队尾（组内按余额多少排，见下）。
   // 高峰减半、同分按重置近在前兜底保留；无/非法 resetAt 的判据统一走 toEpochMillis
   // （null/0/负数/非数 → null），不再各处自写 Number() 守卫——Number(null)=0 是有限数，
   // 漏挡一次就沉不了底。
@@ -625,13 +703,26 @@ function orderRowsForDisplay(rows, now) {
     if (availability.available) usable.push(row)
     else blocked.push({ row, unlockAt: availability.unlockAt })
   }
+  // 余额行内部再排一道（2026-09-29 Neal 定）：余额多的在前，没有余额（0 / 缺失 / 非法）
+  // 自动沉到最后。就做数值大小的直接比较——各家余额是自家计量单位（¥ / $），不折算汇率、
+  // 不折算购买力；同值或「都没余额」时保持后端给的原始顺序（稳定，面板不会无故跳动）。
+  const balanceRows = rows
+    .filter(row => row.kind !== 'quota')
+    .map((row, index) => ({ row, index, balance: numericOrNull(row.balance) }))
+  balanceRows.sort((a, b) => {
+    const aHas = a.balance !== null && a.balance !== 0
+    const bHas = b.balance !== null && b.balance !== 0
+    if (aHas !== bHas) return aHas ? -1 : 1
+    if (aHas && bHas && a.balance !== b.balance) return b.balance - a.balance
+    return a.index - b.index
+  })
   usable.sort((a, b) => (rowPriority(b, now) - rowPriority(a, now)) || (eta(a) - eta(b)))
   blocked.sort((a, b) => (a.unlockAt - b.unlockAt) || (eta(a.row) - eta(b.row)))
   return [
     ...usable,
     ...blocked.map(entry => entry.row),
     ...unknown,
-    ...rows.filter(row => row.kind !== 'quota')
+    ...balanceRows.map(entry => entry.row)
   ]
 }
 
@@ -787,9 +878,13 @@ function formatMoney(value, currency) {
   return `${symbol}${Number(value).toFixed(2)}`
 }
 
-// Fixed neutral theme color for all money values and balance dots; no
-// amount-based dynamic coloring anymore.
+// 余额值色（2026-09-29 起按配色模式给色，2026-09-15 的「金额一律中性灰」决定由
+// Neal 存量需求①有意推翻）；两色与两套配色全部语义档的区分度钉在 color-modes 测试。
 const NEUTRAL_VALUE_COLOR = 'var(--ui-text-quaternary)'
+
+// 不可用行（quota gap=no_fetcher 的占位行 / balance 行）整行灰化时，名字与数值都用它；
+// 可用性行（quota）的变灰走本函数，格子配色不受影响（灰是行级状态，不是新消耗档）。
+const isPlaceholderRow = row => row?.kind === 'quota' && row?.gap === 'no_fetcher'
 
 // 「这个值能不能当重置时刻用」的唯一判据：有效→毫秒 epoch，无效→null。
 // 无效 = null / undefined / 0 / 负数 / 非数（后端省字段、占位 0、provider 换 API 都会遇到）。
@@ -873,6 +968,8 @@ function normalizeRow(row) {
     burstShare: normalizeBurstShare(row.burstShare),
     peakHours: normalizePeakHours(row.peakHours),
     accent: typeof row.accent === 'string' && row.accent.trim() ? row.accent.trim() : null,
+    // 暗主题的那一只（2026-09-29）：缺了就用 accent，白底深底都不至于没颜色。
+    accentDark: typeof row.accentDark === 'string' && row.accentDark.trim() ? row.accentDark.trim() : null,
     // 缺事实的原因码（no_window/no_share/...）：看板行内要明说，禁止静默少画。
     gap: typeof row.gap === 'string' && row.gap.trim() ? row.gap.trim().slice(0, 80) : null,
     usedPercent: usedPercent === null ? null : clamp(usedPercent, 0, 100),
@@ -884,11 +981,14 @@ function normalizeRow(row) {
     todaySpend,
     sevenDaySpend,
     thirtyDaySpend,
+    // 连接态事实（'ok'/'no_fetcher'/…）原样透传：占位行的判定来源在 status，
+    // 不解析 actionHint 文案。
+    status: typeof row.status === 'string' && row.status.trim() ? row.status.trim().slice(0, 40) : null,
     error: sanitizeRowError(row.error)
   }
 }
 
-function SpendMetric({ label, value, currency }) {
+function SpendMetric({ label, value, currency, color }) {
   return jsxs('span', {
     className: 'flex shrink-0 items-baseline gap-1 whitespace-nowrap leading-none',
     children: [
@@ -899,16 +999,28 @@ function SpendMetric({ label, value, currency }) {
       }),
       jsx('span', {
         className: 'font-mono text-[0.68rem] tabular-nums',
-        style: { color: NEUTRAL_VALUE_COLOR },
+        style: { color: color || NEUTRAL_VALUE_COLOR },
         children: formatMoney(value, currency)
       })
     ]
   })
 }
 
-function BalanceSpendRow({ subscription, now }) {
+const BALANCE_PLACEHOLDER_TEXT = 'No fetcher adapter yet'
+
+// 存量需求①（2026-09-29 Neal 定，同日看板实测纠正）：余额行的圆点与 BALANCE 金额
+// 脱离中性灰——主色 = 该供应方的 accent（与订阅行 WeeklyQuotaRow 同源同色）；行上
+// 没有 accent 才落 balanceValueColor 兜底紫（按配色模式）。TODAY/7D/30D 维持中性灰
+// ——需求只点名余额一处。
+// 存量需求②（2026-09-29）：余额 0 / 触顶（accent='cap'）/ 取数失败 → 整行灰（UNAVAILABLE_GRAY）。
+function BalanceSpendRow({ subscription, now, colorMode = 'default' }) {
   const failed = Boolean(subscription.error)
-  const accent = failed ? COLORS.danger : NEUTRAL_VALUE_COLOR
+  const available = availabilityOf(subscription, null).available
+  const grayed = failed || !available
+  const accent = failed
+    ? COLORS.danger
+    : grayed ? UNAVAILABLE_GRAY : (accentFor(subscription) || balanceValueColor(colorMode))
+  const placeholder = subscription.status === 'no_fetcher'
 
   return jsxs('div', {
     title: failed ? String(subscription.error || '') : undefined,
@@ -943,27 +1055,34 @@ function BalanceSpendRow({ subscription, now }) {
             style: { color: accent },
             children: `ERR ${String(subscription.error || 'data unavailable').slice(0, 60)}`
           })
-        : jsxs('span', {
-            className: 'flex min-w-0 flex-1 flex-nowrap items-baseline gap-x-2 overflow-hidden',
-            children: [
-              jsx(SpendMetric, {
-                label: 'BALANCE', value: subscription.balance,
-                currency: subscription.currency
-              }),
-              jsx(SpendMetric, {
-                label: 'TODAY', value: subscription.todaySpend,
-                currency: subscription.currency
-              }),
-              jsx(SpendMetric, {
-                label: '7D', value: subscription.sevenDaySpend,
-                currency: subscription.currency
-              }),
-              jsx(SpendMetric, {
-                label: '30D', value: subscription.thirtyDaySpend,
-                currency: subscription.currency
-              })
-            ]
-          })
+        : placeholder
+          ? jsx('span', {
+              className: 'min-w-0 flex-1 truncate font-mono text-[0.68rem] tabular-nums',
+              style: { color: UNAVAILABLE_GRAY },
+              title: 'Provider recognized, but no fetcher adapter yet; the row stays until an adapter ships.',
+              children: BALANCE_PLACEHOLDER_TEXT
+            })
+          : jsxs('span', {
+              className: 'flex min-w-0 flex-1 flex-nowrap items-baseline gap-x-2 overflow-hidden',
+              children: [
+                jsx(SpendMetric, {
+                  label: 'BALANCE', value: subscription.balance,
+                  currency: subscription.currency, color: accent
+                }),
+                jsx(SpendMetric, {
+                  label: 'TODAY', value: subscription.todaySpend,
+                  currency: subscription.currency
+                }),
+                jsx(SpendMetric, {
+                  label: '7D', value: subscription.sevenDaySpend,
+                  currency: subscription.currency
+                }),
+                jsx(SpendMetric, {
+                  label: '30D', value: subscription.thirtyDaySpend,
+                  currency: subscription.currency
+                })
+              ]
+            })
     ]
   })
 }
@@ -1060,8 +1179,16 @@ function WeeklyMeter({ subscription, now, fiveHourSibling }) {
 function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NAME_TRACK_PX, quotaTrackPx = QUOTA_TRACK_MIN_PX, metaTrackPx = META_TRACK_MIN_PX }) {
   const failed = Boolean(subscription.error)
   const unknown = subscription.usedPercent === null || subscription.usedPercent === undefined
+  // 占位行（2026-09-29Neal 定的通用机制）：识别成功但没有适配器 → gap=no_fetcher。
+  // 有名字、无数值：配额格写「Unknown —」、倒计时只有「Reset —」、不画矩阵，
+  // 提示文字走 quota 格 title（格子文字唯一来源仍是 quotaCellText / resetClockLabel）。
+  const placeholder = isPlaceholderRow(subscription)
+  // 存量需求②（2026-09-29）：主窗用尽或短窗用满 → 整行变灰。判据 = availabilityOf
+  //（与排序同一处真源）；灰是行级可用性状态，矩阵格色不变、超额红不冲突。
+  const rowGrayed = !failed && !placeholder && !availabilityOf(subscription, findFiveHourSibling(subscription, quotaPool)).available
+  const dimmed = rowGrayed || placeholder
   // 配色来自行（后端抄进行）；行上没给就用中性绿。
-  const accent = failed ? COLORS.danger : (subscription.accent || COLORS.green)
+  const accent = failed ? COLORS.danger : dimmed ? UNAVAILABLE_GRAY : (accentFor(subscription) || COLORS.green)
   const quotaText = quotaCellText(subscription)
   // 5h 兄弟行（2026-09-09 起）：从全部 quota 行池里找同 providerId 的短窗行。
   // 两个用途——Reset 倒计时的候选来源（resetWindowCandidates）与 WeeklyMeter 的锁定段。
@@ -1118,7 +1245,9 @@ function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NA
   const quotaCell = jsx('span', {
     className: 'shrink-0 font-mono text-[0.68rem] tabular-nums',
     style: { color: accent },
-    title: failed ? undefined : 'Remaining quota (not used)',
+    title: placeholder
+      ? 'Provider recognized, but no fetcher adapter yet; the row stays until an adapter ships.'
+      : failed ? undefined : 'Remaining quota (not used)',
     children: quotaText
   })
   const metaCell = jsxs('span', {
@@ -1164,7 +1293,7 @@ function WeeklyQuotaRow({ subscription, now, quotaPool, nameTrackPx = DEFAULT_NA
   // 5h 兄弟行已在函数开头算好（resetWindowCandidates 与 WeeklyMeter 共用同一个）。
   // M5（定稿 §1「windowSeconds … 缺→不画轴」）：无窗行不画矩阵，只留文字；
   // 行内缺口文案（gap 通道）口径待 Neal 认可，本轮不加。
-  const meterCell = failed || !subscription.windowSeconds ? null : (unknown ? null : jsx(WeeklyMeter, { subscription, now, fiveHourSibling }))
+  const meterCell = failed || placeholder || !subscription.windowSeconds ? null : (unknown ? null : jsx(WeeklyMeter, { subscription, now, fiveHourSibling }))
 
   if (narrow) {
     return jsxs('div', {
@@ -1216,10 +1345,11 @@ function wholeHelpLines(palette, mode) {
   { swatch: palette.blue, text: `${names.surplus}: surplus available quota` },
   { swatch: palette.blueLocked, text: `${names.surplusLocked}: surplus quota locked by the 5h window` },
   { swatch: palette.orange, text: `${names.over}: over-consumed quota` },
-  { text: 'The dot by a plan name distinguishes providers — not cell colors or balance status.' },
+  { text: 'The dot by a plan name distinguishes providers; balance rows use the same provider colour as the plan dot — grey marks a row you cannot use right now.' },
   { text: '"N% left" = remaining quota (not used). "Reset" = time until the next cycle.' },
   { text: '"Unknown —" = no quota percentage returned, so no surplus is shown.' },
-  { text: '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.' }
+  { text: '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.' },
+  { swatch: palette.gray, text: 'Grey row = unavailable right now: balance spent or at its cap, or the 5-hour / weekly window is used up. Matrix colors are unchanged — it is a row state, not a new quota tier.' }
   ]
 }
 
@@ -1583,6 +1713,12 @@ function SubscriptionMeterBody({ rest }) {
   const quotaPool = displayRows.filter(r => r.kind === 'quota')
   // 三条轨道宽度：按当前 quota 行的真实文字量一次，所有行共用（换数据/换字模自己跟上）。
   const tracks = useMeasuredTracks(quotaPool, now)
+  // 余额行的配色模式（余额值色 2026-09-29）：同样必须在提前 return 之前（#310 防线，
+  // 见 reset-column-fit 的源码顺序断言）。
+  const colorMode = useColorMode()
+  // 当前主题（亮/暗）决定行上取哪一只 accent：同样是 hook，必须排在提前 return 之前
+  // （#310 防线）。返回值由 accentFor 通过模块变量取用。
+  useColorScheme()
 
   if (!rows.length) {
     return jsx('div', {
@@ -1679,7 +1815,8 @@ function SubscriptionMeterBody({ rest }) {
                   jsx(BalanceSpendRow, {
                     key: 'row',
                     subscription,
-                    now
+                    now,
+                    colorMode
                   })
                 ]
               }, `subscription-${subscription.id || index}`)

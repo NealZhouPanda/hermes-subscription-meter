@@ -31,7 +31,14 @@ providers:
       label_kind:
         label: ANTHROPIC
         kind: quota
-    meta: {}
+    meta:
+      accent: "#8F3224"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#C4604D"
 
   - id: openrouter
     shareable: false
@@ -46,7 +53,14 @@ providers:
       label_kind:
         label: OPENROUTER
         kind: balance
-    meta: {}
+    meta:
+      accent: "#4900FA"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#915BF8"
 
   - id: kimi
     shareable: false
@@ -65,7 +79,13 @@ providers:
         label: KIMI
         kind: quota
     meta:
-      accent: "#14AE68"
+      accent: "#188651"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#14AE68"
 
   - id: qwen-dashscope
     shareable: false
@@ -80,22 +100,14 @@ providers:
       label_kind:
         label: QWEN DASHSCOPE
         kind: quota
-    meta: {}
-
-  - id: xai-inference
-    shareable: false
-    matchers:
-      prefixes:
-        - prefix: xai-
-          kind: quota
-          label: XAI API
-      oauth: []
-      env_slots: []
-      ledger_env: []
-      label_kind:
-        label: XAI API
-        kind: quota
-    meta: {}
+    meta:
+      accent: "#B33800"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#D4541F"
 
   - id: xai
     shareable: false
@@ -108,7 +120,14 @@ providers:
       label_kind:
         label: XAI
         kind: balance
-    meta: {}
+    meta:
+      accent: "#0D1726"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#757E91"
 
   - id: qwen
     shareable: false
@@ -124,7 +143,14 @@ providers:
       label_kind:
         label: QWEN
         kind: balance
-    meta: {}
+    meta:
+      accent: "#B33800"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#D4541F"
 
   - id: glm
     shareable: false
@@ -140,7 +166,13 @@ providers:
         label: GLM
         kind: quota
     meta:
-      accent: "#F39800"
+      accent: "#A96600"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#F39800"
       peakHours:
         timezone: "+08:00"
         daily: false
@@ -159,6 +191,13 @@ providers:
         label: DEEPSEEK
         kind: balance
     meta:
+      accent: "#081DA0"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#7D65F7"
       peakHours:
         timezone: "+08:00"
         daily: false
@@ -177,7 +216,14 @@ providers:
       label_kind:
         label: MINIMAX
         kind: quota
-    meta: {}
+    meta:
+      accent: "#EB004A"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#F41250"
 
   - id: minimax
     shareable: false
@@ -190,7 +236,34 @@ providers:
       label_kind:
         label: MINIMAX
         kind: quota
-    meta: {}
+    meta:
+      accent: "#EB004A"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#F41250"
+
+  - id: xiaomi
+    shareable: false
+    matchers:
+      prefixes: []
+      oauth: []
+      env_slots:
+        - XIAOMI_API_KEY
+      ledger_env: []
+      label_kind:
+        label: MIMO
+        kind: balance
+    meta:
+      accent: "#CF4800"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#D9500B"
 
   - id: codex
     shareable: true
@@ -204,7 +277,13 @@ providers:
         label: CODEX
         kind: quota
     meta:
-      accent: "#28A7E0"
+      accent: "#207EA9"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#28A7E0"
 
   - id: grok
     shareable: true
@@ -218,7 +297,13 @@ providers:
         label: GROK
         kind: quota
     meta:
-      accent: "#1DA1F2"
+      accent: "#217CBA"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#1DA1F2"
 
   - id: nous
     shareable: false
@@ -232,7 +317,13 @@ providers:
         label: NOUS
         kind: balance
     meta:
-      accent: "#6366F1"
+      accent: "#6165F0"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#696BF7"
 
   - id: commandcode
     shareable: false
@@ -249,4 +340,10 @@ providers:
         label: COMMANDCODE
         kind: quota
     meta:
-      accent: "#2DD4BF"
+      accent: "#1A8476"
+      # Per-theme brand accent: `accent` = light theme, `accentDark` = dark theme.
+      # Brand hue is kept; only lightness shifts, and only on the theme where the
+      # brand colour would not read (supplier accents are decorative, so the only
+      # rule is legibility on that theme: 4.5:1, since name and amount are small
+      # text). Pinned by tests/test_identity_accents.py.
+      accentDark: "#2DD4BF"

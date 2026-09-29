@@ -14,6 +14,8 @@ const sliceFunction = name => {
   return block
 }
 const PALETTE_SAND = vm.runInNewContext([
+  // COLORS 现在引用 UNAVAILABLE_GRAY（gray 键），必须先注入它。
+  pluginSource.match(/^const UNAVAILABLE_GRAY = .*$/m)[0],
   pluginSource.match(/const COLORS = \{[\s\S]*?\n\}/)[0],
   pluginSource.match(/const HIGH_CONTRAST_COLORS = \{[\s\S]*?\n\}/)[0],
   pluginSource.match(/const HIGH_CONTRAST_MODE = '[^']*'/)[0],
@@ -87,6 +89,25 @@ const worstCvdDeltaE = palette => Math.min(...Object.keys(CVD_MATRICES).map(kind
 const DEFAULT_PALETTE = PALETTE_SAND.COLORS
 const CONTRAST_PALETTE = PALETTE_SAND.paletteFor(PALETTE_SAND.HIGH_CONTRAST_MODE)
 
+// 2026-09-29 起面板新增的三个状态色：不可用灰（行级状态）+ 余额**兜底**色两套。
+// 同日 Neal 看板实测纠正：余额行主色 = 该供应方的 accent（identity.yaml meta，后端
+// _apply_provider_meta 抄进行），与订阅行圆点同源同色；BALANCE_VALUE_COLORS 只在
+// 行上没有 accent 时兜底（xai/qwen/deepseek 等未配 accent 的供应方）。兜底紫仍按
+// 与配色常量一样字节锁死；区分度要求 = 对「它会在同一模式里出现的每个色」
+// min(3×CVD 双方模拟, 普通视觉) ≥ 20（经全域扫描选出的最大可行下限，见钉表）。
+const STATE_COLORS_SAND = vm.runInNewContext([
+  pluginSource.match(/const HIGH_CONTRAST_MODE = '[^']*'/)[0],
+  pluginSource.match(/const isHighContrast = [^\n]*/)[0],
+  pluginSource.match(/const BALANCE_VALUE_COLORS = .*\n/)[0],
+  pluginSource.match(/const UNAVAILABLE_GRAY = '[^']*'/)[0],
+  pluginSource.match(/const balanceValueColor = [^\n]*/)[0],
+  ';({ BALANCE_VALUE_COLORS, UNAVAILABLE_GRAY, balanceValueColor })'
+].join('\n'), { console })
+const UNAVAILABLE_GRAY = STATE_COLORS_SAND.UNAVAILABLE_GRAY
+const BALANCE_DEFAULT = STATE_COLORS_SAND.balanceValueColor('default')
+const BALANCE_HIGH_CONTRAST = STATE_COLORS_SAND.balanceValueColor(PALETTE_SAND.HIGH_CONTRAST_MODE)
+const STATE_HIGH_CONTRAST_MODE = PALETTE_SAND.HIGH_CONTRAST_MODE
+
 test('默认配色就是 2026-09-12 定稿的五色（这个模式不该动它）', () => {
   assert.equal(DEFAULT_PALETTE.green, '#14AE68')
   assert.equal(DEFAULT_PALETTE.greenLocked, '#006935')
@@ -157,9 +178,9 @@ test('图例文案跟着配色走：高对比度模式下不许再说「天蓝 /
   assert.ok(contrasted.includes('Red: over-consumed quota'))
   assert.ok(contrasted.includes('Green: remaining available quota'), '绿色语义没变')
   assert.ok(!contrasted.some(line => /Sky blue|Dark blue|Orange/.test(line)), '不许留旧颜色名')
-  // 色块颜色也必须跟着换（不然图例自己就对不上）
+  // 色块颜色也必须跟着换（不然图例自己就对不上）；2026-09-29 起灰行说明也带色块。
   const swatches = PALETTE_SAND.wholeHelpLines(CONTRAST_PALETTE, PALETTE_SAND.HIGH_CONTRAST_MODE).filter(line => line.swatch).map(line => line.swatch)
-  assert.deepEqual(Array.from(swatches), ['#228833', '#13581E', '#F0E442', '#A8A02B', '#EE6677'])
+  assert.deepEqual(Array.from(swatches), ['#228833', '#13581E', '#F0E442', '#A8A02B', '#EE6677', UNAVAILABLE_GRAY])
 })
 
 test('开关与描边真的接在界面上（不是只有配色常量）', () => {
@@ -217,4 +238,90 @@ test('防退化：过 3:1 明度判据的那三对不许丢', () => {
   const passing = FLOOR_PAIRS.filter(([a, b]) => contrastRatio(CONTRAST_PALETTE[a], CONTRAST_PALETTE[b]) >= 3)
   assert.equal(passing.length, LUMINANCE_PASSING_PAIRS.length,
     `过 3:1 的对数变了：${passing.length}（基线 ${LUMINANCE_PASSING_PAIRS.length}）`)
+})
+
+// --- 2026-09-29 新增状态色的防退化钉（Neal 存量需求①②）--------------------------
+// 口径与五色钉一致：Machado 三色盲双方模拟 + 普通视觉，取最小值；基线容差 0.5。
+// 灰与余额色是**行级状态色**，不进格子矩阵，只要求「同一屏上分得开」，
+// 所以每色只钉它实际会同屏出现的色（default / high-contrast 各一份）。
+const pairWorstStateDeltaE = (a, b) => Math.min(
+  ...Object.keys(CVD_MATRICES).map(kind => deltaE(simulate(a, kind), simulate(b, kind))),
+  deltaE(a, b)
+)
+
+test('不可用灰 #404040 与两套配色全部语义色都分得开（基线 2026-09-29）', () => {
+  assert.equal(UNAVAILABLE_GRAY, '#404040', '灰值字节锁死')
+  const GRAY_FLOORS = {
+    [STATE_HIGH_CONTRAST_MODE]: { green: 39.2, greenLocked: 24.8, blue: 63.7, blueLocked: 39.9, orange: 27.5, balance: 50.2 },
+    default: { green: 40.1, greenLocked: 21.7, blue: 53.5, blueLocked: 25.1, orange: 66.9, balance: 31.9 }
+  }
+  for (const [mode, floors] of Object.entries(GRAY_FLOORS)) {
+    const balance = STATE_COLORS_SAND.balanceValueColor(mode)
+    for (const [name, floor] of Object.entries(floors)) {
+      const other = name === 'balance' ? balance : (mode === 'default' ? DEFAULT_PALETTE : CONTRAST_PALETTE)[name]
+      const actual = pairWorstStateDeltaE(UNAVAILABLE_GRAY, other)
+      assert.ok(actual >= floor - 0.5,
+        `${mode}：灰 ↔ ${name} ΔE ${actual.toFixed(1)} 跌破基线 ${floor}`)
+    }
+  }
+})
+
+test('余额兜底色（default 紫 / high-contrast 亮紫红）与同屏各色分得开（基线 2026-09-29）', () => {
+  assert.equal(BALANCE_DEFAULT, '#8820e8', 'default 兜底色字节锁死')
+  assert.equal(BALANCE_HIGH_CONTRAST, '#d75cd7', 'high-contrast 兜底色字节锁死')
+  const BALANCE_FLOORS = {
+    [STATE_HIGH_CONTRAST_MODE]: { value: BALANCE_HIGH_CONTRAST, others: { green: 70.7, greenLocked: 68.0, blue: 47.2, blueLocked: 39.7, orange: 28.9, gray: 50.2 } },
+    default: { value: BALANCE_DEFAULT, others: { green: 63.6, greenLocked: 49.2, blue: 41.7, blueLocked: 28.0, orange: 59.4, gray: 31.9 } }
+  }
+  for (const [mode, { value, others }] of Object.entries(BALANCE_FLOORS)) {
+    for (const [name, floor] of Object.entries(others)) {
+      const other = name === 'gray' ? UNAVAILABLE_GRAY : (mode === 'default' ? DEFAULT_PALETTE : CONTRAST_PALETTE)[name]
+      const actual = pairWorstStateDeltaE(value, other)
+      assert.ok(actual >= floor - 0.5,
+        `${mode}：余额色 ↔ ${name} ΔE ${actual.toFixed(1)} 跌破基线 ${floor}`)
+    }
+  }
+  // 两套余额色互相也要分得开（同一个人两台显示模式切换时不至于认不出同一行）
+  const across = pairWorstStateDeltaE(BALANCE_DEFAULT, BALANCE_HIGH_CONTRAST)
+  assert.ok(across >= 35.5, `两套余额色 ΔE ${across.toFixed(1)} 跌破基线 36.0`)
+})
+
+test('3:1 明度判据：新增状态色带来的过线对按 2026-09-29 口径钉住', () => {
+  // 灰与深档（greenLocked/blueLocked）明度接近，3:1 判据本来就不适合它们——
+  // 那两对靠 ΔE（色相差）区分，这里钉的是「新色确实至少带来这些 3:1 对」：
+  const NEW_PASSING = {
+    default: [['gray', 'green'], ['gray', 'blue'], ['gray', 'orange']],
+    [STATE_HIGH_CONTRAST_MODE]: [['gray', 'blue'], ['gray', 'blueLocked'], ['gray', 'orange'], ['gray', 'balance']]
+  }
+  const counts = {}
+  for (const [mode, pairs] of Object.entries(NEW_PASSING)) {
+    const balance = STATE_COLORS_SAND.balanceValueColor(mode)
+    let pass = 0
+    for (const [a, b] of pairs) {
+      const ca = a === 'gray' ? UNAVAILABLE_GRAY : a === 'balance' ? balance : (mode === 'default' ? DEFAULT_PALETTE : CONTRAST_PALETTE)[a]
+      const cb = b === 'gray' ? UNAVAILABLE_GRAY : b === 'balance' ? balance : (mode === 'default' ? DEFAULT_PALETTE : CONTRAST_PALETTE)[b]
+      assert.ok(contrastRatio(ca, cb) >= 3, `${mode}：${a}↔${b} 掉了 3:1`)
+      pass += 1
+    }
+    counts[mode] = pairs.length
+    assert.equal(pass, pairs.length)
+  }
+  assert.equal(counts.default, 3)
+  assert.equal(counts[STATE_HIGH_CONTRAST_MODE], 4)
+})
+
+test('图例跟着新状态色走：灰行说明两套配色都在，余额色说法更新', () => {
+  const normal = PALETTE_SAND.wholeHelpLines(DEFAULT_PALETTE, 'default').map(line => line)
+  const contrasted = PALETTE_SAND.wholeHelpLines(CONTRAST_PALETTE, PALETTE_SAND.HIGH_CONTRAST_MODE).map(line => line)
+  const GREY_TEXT = 'Grey row = unavailable right now: balance spent or at its cap, or the 5-hour / weekly window is used up. Matrix colors are unchanged — it is a row state, not a new quota tier.'
+  for (const lines of [normal, contrasted]) {
+    const greyLine = lines.find(line => line.text === GREY_TEXT)
+    assert.ok(greyLine, '灰行说明必须存在')
+    assert.equal(greyLine.swatch, UNAVAILABLE_GRAY, '灰行说明的色块必须是不可用灰')
+  }
+  const DOT_TEXT = 'The dot by a plan name distinguishes providers; balance rows use the same provider colour as the plan dot — grey marks a row you cannot use right now.'
+  assert.ok(normal.some(line => line.text === DOT_TEXT) && contrasted.some(line => line.text === DOT_TEXT),
+    '圆点/余额色的说法必须替换旧「not cell colors or balance status」')
+  assert.ok(!normal.concat(contrasted).some(line => line.text.includes('not cell colors or balance status')),
+    '旧说法必须删干净')
 })

@@ -57,10 +57,11 @@ const WHOLE_HELP_TEXTS = [
   'Sky blue: surplus available quota',
   'Dark blue: surplus quota locked by the 5h window',
   'Orange: over-consumed quota',
-  'The dot by a plan name distinguishes providers — not cell colors or balance status.',
+  'The dot by a plan name distinguishes providers; balance rows use the same provider colour as the plan dot — grey marks a row you cannot use right now.',
   '"N% left" = remaining quota (not used). "Reset" = time until the next cycle.',
   '"Unknown —" = no quota percentage returned, so no surplus is shown.',
-  '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.'
+  '"ERR" = fixed safe message; "Refresh failed" keeps last good data, marked stale.',
+  'Grey row = unavailable right now: balance spent or at its cap, or the 5-hour / weekly window is used up. Matrix colors are unchanged — it is a row state, not a new quota tier.'
 ]
 
 function collect(node, out = [], depth = 0) {
