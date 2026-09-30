@@ -52,7 +52,11 @@ def test_registry_slot_with_unknown_key_shape_is_no_fetcher():
     assert len(providers) == 1
     entry = next(iter(providers.values()))
     assert entry.status == "no_fetcher"
-    assert plugin_api.build_payload().rows == []
+    # 识别出来但没有取数适配器 → 看板上一行占位（gap="no_fetcher"），不再静默消失
+    # （2026-09-29 占位行功能；此前的 `rows == []` 断言早于它）。
+    placeholder = plugin_api.build_payload().rows
+    assert [row.status for row in placeholder] == ["no_fetcher"]
+    assert placeholder[0].gap == "no_fetcher"
 
 
 def test_known_hermes_slot_without_fetcher_is_no_fetcher():
@@ -64,7 +68,9 @@ def test_known_hermes_slot_without_fetcher_is_no_fetcher():
     assert entry.id == "anthropic"
     assert entry.status == "no_fetcher"
     _reset_cache()
-    assert plugin_api.build_payload().rows == []
+    placeholder = plugin_api.build_payload().rows
+    assert [row.status for row in placeholder] == ["no_fetcher"]
+    assert placeholder[0].gap == "no_fetcher"
 
 
 def test_unrecognized_and_no_fetcher_labels_present_in_desktop_frontend():

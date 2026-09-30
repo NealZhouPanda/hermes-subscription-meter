@@ -575,12 +575,35 @@ def _shared_source_home(source: str) -> Path:
     return Path.home() / ".hermes" / "profiles" / source
 
 
+def _source_binds_provider(provider_id: str, source_home: Path) -> bool:
+    """源 profile 是否真的绑定了这家（有可识别凭据），决定共享行该不该存在。
+
+    共享的语义是「借用源 profile 的凭据」，所以源根本没绑这家时映射是死的：
+    源自己不显示这一行，消费端也不该凭空多出一行（2026-09-30）。只做静态识别、
+    不发网络请求（源有绑定但本次抓取失败仍走真实错误行，fail-visible 行为不变）。
+    识别过程异常时保守返回 True，退回旧行为——注入后由取数结果说话。
+    """
+    from hermes_constants import reset_hermes_home_override, set_hermes_home_override
+
+    token = set_hermes_home_override(source_home)
+    try:
+        for candidate in _discover_credentials():
+            identity = _classify_candidate(candidate)
+            if identity["id"] == provider_id and identity["fetcher_id"]:
+                return True
+        return False
+    except Exception:
+        return True
+    finally:
+        reset_hermes_home_override(token)
+
+
 def _shared_source_map() -> dict[str, str]:
     """当前 profile 插件设置里的显式数据源映射 provider id → 源 profile 名。
 
     无映射 → 空 dict（行为与之前完全一致）；仅 Spec 上 shareable=True 的 provider
     生效（唯一真源在 FETCHER_SPECS，M6 收编原白名单语义）；
-    源目录不存在或映射到自身时跳过，不做模糊猜测。
+    源目录不存在、映射到自身、或源根本没绑这家（映射是死的）时跳过，不做模糊猜测。
     """
     raw = _read_plugin_settings().get("shared_sources")
     if not isinstance(raw, dict):
@@ -594,6 +617,8 @@ def _shared_source_map() -> dict[str, str]:
             continue
         home = _shared_source_home(source.strip())
         if not home.is_dir() or home.resolve() == get_hermes_home().resolve():
+            continue
+        if not _source_binds_provider(provider_id, home):
             continue
         result[provider_id] = source.strip()
     return result
