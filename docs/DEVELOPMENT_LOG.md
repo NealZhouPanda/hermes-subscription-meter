@@ -1,5 +1,17 @@
 # Development Log
 
+Requested 2026-09-30 — the settings list should make a provider's problem visible at a glance (NOT BUILT YET)
+
+- The settings page already lists every discovered credential with a connection-status line (`CONNECTION_LABELS`), including `API key not recognized`, `No fetcher available`, `Auth or permission failed`, `Request failed`, `Not checked yet`, `Last check succeeded`. What it does not do is make a problem *visible*: every status is the same secondary-grey text, the "what to do about it" hint sits inside a collapsed `<details>`, and nothing counts how many providers need attention. Six providers with three broken reads exactly like six healthy ones until you read all six lines.
+- Scope when built — three things, all in the settings list:
+  1. Give the status line a severity treatment: neutral for `ok` / `not checked` / `disabled`, danger family for `auth_error` / `request_error`, a warning treatment for `unrecognized` / `no_fetcher` / `unconfigured`. Colour is a second channel only — the text must still carry the meaning on its own.
+  2. Stop hiding the remedy behind a click: surface the action hint inline for the problem statuses (or open that row's `<details>` by default).
+  3. A one-line summary at the top of the list: "2 of 6 providers need attention".
+- Boundary this must respect: the board already covers *operational* failures — a failed row paints red and prints `ERR`. This item is about *setup* problems (an unreadable key, a provider with no adapter yet, a provider switched off), which exist only here. Do not move them onto the board: the board is a quota view, not a diagnostics view.
+- Colour caveat: the panel's semantic colours (green / blue / orange / grey) mean quota state on the board. Reusing green for "healthy" here is fine because it is a different surface, but the status has to remain readable as text — the same rule the board's legend follows, and these lines are small text (4.5:1, not 3:1).
+- Pieces involved: `CONNECTION_LABELS` + `ProviderSettingsPanel` in `desktop/plugin.js`; `_identity_status()` / `_ACTION_HINTS` in `dashboard/plugin_api.py` decide which status an entry gets. Pinned today by `tests/provider-settings-ui.test.mjs` and `tests/test_connection_status.py`, so both move with the change.
+
+
 2026-09-29 — 0.5.0 released: provider colour that is legible, rows that say what they do not know
 
 - Three colour requests and one honesty request, all built in one pass. (1) Balance rows carry colour again, on the two things you actually read: the dot before the account name and the balance amount itself — `TODAY` / `7D` / `30D` stay neutral, the request named the balance only. (2) A row you cannot call right now goes grey, plan and balance alike: balance 0, balance at its cap, 5-hour window spent, weekly window spent. (3) A credential that is recognised but has no fetcher adapter no longer disappears from the board.
