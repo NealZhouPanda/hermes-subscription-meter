@@ -233,3 +233,40 @@ test('不可用 quota 行整行灰、格子配色不受影响；「超额红」�
   // 矩阵还在（窗口有效）：超额橙不会被灰覆盖——灰是行级状态色，不进 weeklyCell。
   assert.ok(nodes.some(node => node.props?.['data-meter-cell']), '矩阵保留')
 })
+
+test('余额行：拿不到的消费列不画（2026-10-03 Neal 定），拿到几列画几列', () => {
+  const noSpend = textOf(renderBalanceRow({ balance: 79.3 }))
+  assert.ok(noSpend.includes('BALANCE'), '余额永远在（行照留）')
+  assert.ok(
+    !noSpend.includes('TODAY') && !noSpend.includes('7D') && !noSpend.includes('30D'),
+    '一列都没拿到时整列不出现——不再画成「—」'
+  )
+
+  const all = textOf(renderBalanceRow({
+    balance: 79.3, todaySpend: 0.19, sevenDaySpend: 27.4, thirtyDaySpend: 61.89
+  }))
+  assert.ok(all.includes('TODAY') && all.includes('7D') && all.includes('30D'), '拿全了三列照画')
+
+  const partial = textOf(renderBalanceRow({ balance: 79.3, thirtyDaySpend: 61.89 }))
+  assert.ok(partial.includes('30D'), '拿到的那列要在')
+  assert.ok(!partial.includes('TODAY') && !partial.includes('7D'), '没拿到的列不占位')
+})
+
+test('余额行消费列的显示口径只有一处实现（balanceSpendMetrics）', () => {
+  assert.match(pluginSource, /function balanceSpendMetrics\(row\)/, 'helper 必须存在')
+  assert.match(
+    pluginSource,
+    /\.\.\.balanceSpendMetrics\(subscription\)/,
+    'BALANCE 之后的列只能由这个唯一入口给出（行渲染与将来的宽度预算共用一个来源）'
+  )
+  assert.doesNotMatch(
+    pluginSource,
+    /label: 'TODAY', value: subscription\.todaySpend/,
+    '旧的四列硬编码必须删干净，否则空列还会画出来'
+  )
+  assert.match(
+    pluginSource,
+    /\.filter\(\(\[, field\]\) => numericOrNull\(row\[field\]\) !== null\)/,
+    '空值判据走 numericOrNull（0 是合法余额，"" / null / 非数才算没拿到）'
+  )
+})

@@ -150,6 +150,9 @@ class ProviderSetting(BaseModel):
     status: str = "unknown"
     actionHint: str = ""
     checkedAt: Optional[float] = None
+    # 2026-10-03 Neal 定：这家要填什么凭据（requires）/ 补哪一把能多看什么（optional），
+    # 由后端拼好下发，前端只画不解释。空 dict = 这家没什么要说的。
+    credentials: dict[str, str] = Field(default_factory=dict)
 
 
 class ProviderSettingsPayload(BaseModel):
@@ -198,7 +201,8 @@ _PROVIDER_KEYS = frozenset({"id", "shareable", "matchers", "meta"})
 _MATCHER_KEYS = frozenset({"prefixes", "oauth", "env_slots", "ledger_env", "label_kind"})
 _PREFIX_KEYS = frozenset({"prefix", "kind", "label"})
 _LABEL_KIND_KEYS = frozenset({"label", "kind"})
-_META_KEYS = frozenset({"accent", "accentDark", "peakHours"})
+_META_KEYS = frozenset({"accent", "accentDark", "peakHours", "credentials"})
+_CREDENTIAL_KEYS = frozenset({"requires", "optional"})
 _PEAK_KEYS = frozenset({"timezone", "daily", "windows"})
 
 
@@ -277,6 +281,26 @@ def _load_peak_hours(value: Any, where: str) -> dict[str, Any]:
     return {"timezone": timezone, "daily": daily, "windows": parsed}
 
 
+def _load_credentials(value: Any, where: str) -> dict[str, str]:
+    """设置页那句「要填什么 / 补哪把能多看什么」。两个键都可选；值必须是非空字符串。
+
+    这里放的是**面向用户的一句话**，不是机器可解析的规格：env 名、`+`、`or` 的写法
+    都允许，因为文案要能读。requires 不写时由 matchers 推导（见 _derived_requires）。
+    """
+    if not isinstance(value, dict):
+        raise IdentityTableError(f"{where}: expected a mapping")
+    _reject_unknown(value, _CREDENTIAL_KEYS, where)
+    out: dict[str, str] = {}
+    for key in ("requires", "optional"):
+        if key not in value:
+            continue
+        text = value[key]
+        if not isinstance(text, str) or not text.strip():
+            raise IdentityTableError(f"{where}.{key}: expected a non-empty string")
+        out[key] = text.strip()
+    return out
+
+
 def _load_meta(value: Any, where: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise IdentityTableError(f"{where}: expected a mapping")
@@ -294,6 +318,8 @@ def _load_meta(value: Any, where: str) -> dict[str, Any]:
         meta["accentDark"] = accent_dark
     if "peakHours" in value:
         meta["peakHours"] = _load_peak_hours(value["peakHours"], f"{where}.peakHours")
+    if "credentials" in value:
+        meta["credentials"] = _load_credentials(value["credentials"], f"{where}.credentials")
     return meta
 
 
@@ -416,6 +442,47 @@ def _identity_triple(spec_id: str) -> tuple[str, str, str]:
 def _provider_meta(spec_id: str) -> dict[str, Any]:
     spec = _SPEC_BY_ID.get(spec_id)
     return spec.meta if spec else {}
+
+
+def _derived_requires(matchers: dict[str, Any]) -> str:
+    """没手写 requires 时从 matchers 拼一句：槽位是「任选其一」，ledger 与 OAuth 是并列。
+
+    槽位（env_slots）按定义就是弱先验——列了三把是「三把都能当身份」，不是三把都要填，
+    所以用 `or`；ledger_env 是账本键（必须），OAuth 是登录态，二者用 `+` 串。
+    """
+    parts: list[str] = []
+    slots = matchers.get("env_slots") or ()
+    if slots:
+        parts.append(" or ".join(slots))
+    parts.extend(matchers.get("ledger_env") or ())
+    oauth = matchers.get("oauth") or ()
+    if oauth:
+        parts.append("Hermes login " + " or ".join(oauth))
+    return " + ".join(parts)
+
+
+def _credentials_facts(spec: FetcherSpec) -> dict[str, str]:
+    """设置页要明说的凭据事实：requires（不写就推导）+ optional（identity.yaml 手写）。
+
+    2026-10-03 Neal 定：需要额外填一条 API 的家必须在设置页说清，所以 optional 走的
+    是同一份 identity.yaml 数据，不在前端写死供应商名。
+    """
+    declared = spec.meta.get("credentials") or {}
+    facts: dict[str, str] = {}
+    requires = declared.get("requires") or _derived_requires(spec.matchers)
+    if requires:
+        facts["requires"] = requires
+    optional = declared.get("optional")
+    if optional:
+        facts["optional"] = optional
+    return facts
+
+
+def _credentials_for(identity: dict[str, Any]) -> dict[str, str]:
+    spec_id = str(identity.get("fetcher_id") or identity.get("id") or "")
+    spec = _SPEC_BY_ID.get(spec_id)
+    return _credentials_facts(spec) if spec else {}
+
 
 # hermes_cli 不可导入时的兜底槽位清单（仍是固定已知键，不扫全部 .env）。
 _FALLBACK_ENV_SLOTS = (
@@ -833,6 +900,7 @@ def get_provider_settings() -> ProviderSettingsPayload:
                 enabled=enabled,
                 hasMonthly=has_monthly,
                 monthlyEnabled=monthly_enabled,
+                credentials=_credentials_for(identity),
                 **_identity_status(identity, enabled),
             )
         )

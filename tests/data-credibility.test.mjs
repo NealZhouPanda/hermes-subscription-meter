@@ -335,8 +335,15 @@ test('rows with junk numeric fields never render as 0.00', async () => {
   render()
   await flush(); await flush()
   const text = renderedText(render())
-  assert.ok(text.includes('—'), 'junk values must render as unknown (—)')
   assert.ok(!text.includes('0.00'), 'junk values must never render as zero money')
+  // 2026-10-03（口径变更，不是回归）：余额行上没拿到的消费列不再画成「—」，整列不出现。
+  // 旧断言 `text.includes('—')` 就在钉那个占位符，已被 Neal 的新决定取代——行照留、
+  // 只显示真正拿到的东西，「为什么没有」交给设置页的 Needs / Optional。
+  assert.ok(
+    !text.includes('TODAY') && !text.includes('7D') && !text.includes('30D'),
+    'junk spend values leave the column out entirely (no — placeholder)'
+  )
+  assert.ok(text.includes('BALANCE'), 'the balance itself still renders')
 })
 
 test('provider row errors render a fixed safe message, never the raw text', async () => {

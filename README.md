@@ -47,6 +47,16 @@ The discovery layer collects candidate credentials from the Hermes provider regi
 
 Anything detected but lacking a fetcher is shown as `no_fetcher` rather than silently dropped. Quota windows and prepaid balances are both supported; unrecognized credentials are labeled instead of guessed at.
 
+### DeepSeek: the balance needs only the API key
+
+`DEEPSEEK_API_KEY` on its own is enough for the balance row. The `TODAY` / `7D` / `30D`
+spend columns come from a second, separate endpoint and additionally need
+`DEEPSEEK_PLATFORM_TOKEN` — the `userToken` of your own logged-in session on
+`platform.deepseek.com` — in the current profile's `.env`. Without it the row still
+renders and only those three columns stay blank, and the Plugins page reports the
+provider as `Partial data available`. The token expires with the web session; refresh
+it when the spend columns go blank again. Nothing else about the provider depends on it.
+
 ## How it works
 
 - `desktop/plugin.js` — the desktop panel: the weekly matrix (84 cells) with the 5-hour lock overlay, the monthly zone (8-hour cells, sized to the length of the current month), balance bars, automatic ranking of the model it suggests you use first, and per-provider visibility toggles. A monthly quota is shown by default when detected; the provider-specific switch can hide it.

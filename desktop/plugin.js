@@ -1008,6 +1008,28 @@ function SpendMetric({ label, value, currency, color }) {
 
 const BALANCE_PLACEHOLDER_TEXT = 'No fetcher adapter yet'
 
+// 余额行的消费三列（标签 → 行上字段）。三家来自同一次调用，现实里是全有或全无；
+// 逐列过滤是为了「只拿到一部分」时也只画拿到的那几列。
+const BALANCE_SPEND_COLUMNS = [
+  ['TODAY', 'todaySpend'],
+  ['7D', 'sevenDaySpend'],
+  ['30D', 'thirtyDaySpend']
+]
+
+// 2026-10-03 Neal 定：余额行上「没拿到」的那几列不再画成「—」，整列不出现——行照留，
+// 只显示真正拿到的东西（NOUS 这类压根没有按天消费口径的家，从此只写 BALANCE）。
+// 「为什么没有」不在这里解释：看板只报事实，原因留给设置页那行 Needs / Optional。
+function balanceSpendMetrics(row) {
+  return BALANCE_SPEND_COLUMNS
+    .filter(([, field]) => numericOrNull(row[field]) !== null)
+    .map(([label, field]) => jsx(SpendMetric, {
+      key: `spend-${field}`,
+      label,
+      value: row[field],
+      currency: row.currency
+    }))
+}
+
 // 存量需求①（2026-09-29 Neal 定，同日看板实测纠正）：余额行的圆点与 BALANCE 金额
 // 脱离中性灰——主色 = 该供应方的 accent（与订阅行 WeeklyQuotaRow 同源同色）；行上
 // 没有 accent 才落 balanceValueColor 兜底紫（按配色模式）。TODAY/7D/30D 维持中性灰
@@ -1069,18 +1091,7 @@ function BalanceSpendRow({ subscription, now, colorMode = 'default' }) {
                   label: 'BALANCE', value: subscription.balance,
                   currency: subscription.currency, color: accent
                 }),
-                jsx(SpendMetric, {
-                  label: 'TODAY', value: subscription.todaySpend,
-                  currency: subscription.currency
-                }),
-                jsx(SpendMetric, {
-                  label: '7D', value: subscription.sevenDaySpend,
-                  currency: subscription.currency
-                }),
-                jsx(SpendMetric, {
-                  label: '30D', value: subscription.thirtyDaySpend,
-                  currency: subscription.currency
-                })
+                ...balanceSpendMetrics(subscription)
               ]
             })
     ]
@@ -1581,6 +1592,22 @@ function ProviderSettingsPanel({ rest }) {
                     'data-connection-status': provider.status || 'unknown',
                     children: CONNECTION_LABELS[provider.status] || CONNECTION_LABELS.unknown
                   }),
+                  // 2026-10-03 Neal 定：这家要填什么凭据、补哪一把能多看什么，直接在设置页
+                  // 摆出来（不再只活在折叠的提示里）。文案由后端拼好下发——前端不认供应商名。
+                  provider.credentials && provider.credentials.requires
+                    ? jsx('span', {
+                        className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
+                        'data-credentials': 'requires',
+                        children: `Needs: ${provider.credentials.requires}`
+                      })
+                    : null,
+                  provider.credentials && provider.credentials.optional
+                    ? jsx('span', {
+                        className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
+                        'data-credentials': 'optional',
+                        children: `Optional: ${provider.credentials.optional}`
+                      })
+                    : null,
                   provider.checkedAt ? jsx('span', {
                     className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
                     children: `Last checked: ${new Date(provider.checkedAt * 1000).toLocaleString()}`

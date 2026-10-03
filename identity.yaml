@@ -128,6 +128,9 @@ providers:
       # rule is legibility on that theme: 4.5:1, since name and amount are small
       # text). Pinned by tests/test_identity_accents.py.
       accentDark: "#757E91"
+      credentials:
+        # 余额与消费都走 Management API：推理 key 不是这把，team id 也要一起给。
+        requires: "XAI_MANAGEMENT_API_KEY + XAI_TEAM_ID"
 
   - id: qwen
     shareable: false
@@ -151,6 +154,9 @@ providers:
       # rule is legibility on that theme: 4.5:1, since name and amount are small
       # text). Pinned by tests/test_identity_accents.py.
       accentDark: "#D4541F"
+      credentials:
+        # 余额要阿里云 AccessKey，不是 DashScope 的推理 key。
+        requires: "ALIBABA_CLOUD_ACCESS_KEY_ID + ALIBABA_CLOUD_ACCESS_KEY_SECRET"
 
   - id: glm
     shareable: false
@@ -198,6 +204,9 @@ providers:
       # rule is legibility on that theme: 4.5:1, since name and amount are small
       # text). Pinned by tests/test_identity_accents.py.
       accentDark: "#7D65F7"
+      credentials:
+        # 余额只认这把 API key；消费明细走第二个接口，要网页登录态里的 userToken。
+        optional: "DEEPSEEK_PLATFORM_TOKEN — adds today / 7-day / 30-day spend"
       peakHours:
         timezone: "+08:00"
         daily: false
