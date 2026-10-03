@@ -44,6 +44,7 @@ The discovery layer collects candidate credentials from the Hermes provider regi
 | MiniMax | CN plan usage endpoint |
 | Qwen (DashScope) | Alibaba Cloud balance API |
 | Nous | Hermes `account_usage` |
+| OpenRouter | openrouter.ai `/credits` prepaid balance (a plain `sk-or-` key is enough) |
 
 Anything detected but lacking a fetcher is shown as `no_fetcher` rather than silently dropped. Quota windows and prepaid balances are both supported; unrecognized credentials are labeled instead of guessed at.
 

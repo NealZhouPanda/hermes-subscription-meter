@@ -1,5 +1,12 @@
 # Development Log
 
+2026-10-04 — OpenRouter: the row itself was missing, not just its balance
+
+- Started from "why does the meter not show my OpenRouter balance?". Two layers, and the first one mattered more: OpenRouter is *not* in Hermes' `PROVIDER_REGISTRY` env-slot table (it is a routing provider named in `config.yaml`, not a registered auth entry carrying `api_key_env_vars`), so the discovery layer never produced a candidate for `OPENROUTER_API_KEY` — the provider never appeared on the board or the settings page at all, not even as a `no_fetcher` placeholder. Fixed the way `xai` already handles a credential the registry does not know: declare it under `ledger_env` (env name is the identity). The candidate now arrives via the ledger path.
+- The fetcher: `_fetch_openrouter` calls `GET https://openrouter.ai/api/v1/credits` and reports `total_credits − total_usage` as a USD prepaid balance. A plain `sk-or-` key is enough — the docs say a management key is required, but the plain inference key returned 200 (checked 2026-10-04) — so no second credential is asked for. No subscription windows exist, so it is a balance-only row: no `TODAY` / `7D` / `30D` columns.
+- Wiring: one `FETCH_BY_ID` binding; `_ACTION_HINTS["openrouter"]` stopped saying "no fetcher adapter yet" and now names the env var; the settings page's `Needs:` line derives from `ledger_env`, so no `meta.credentials` block was needed.
+- Tests: new `tests/test_openrouter_balance.py` — 9 cases (discovery through the ledger slot, the parsed balance, zero usage keeping the full amount, three bad-payload shapes, a missing credential, a 401 becoming `auth_error`, and the `build_payload` binding proving it is a real fetch and not a placeholder). Frontend **195/195** (untouched — a balance row is provider-neutral); backend **162 passed** (153 + 9) in the venv with `hermes_cli` importable. Verified end-to-end against the live account: discovered via `ledger`, real USD balance returned.
+
 2026-10-03 — a balance row drops the columns it does not have, and the settings page says what each provider needs
 
 - Two decisions taken in one thread (started from "Qingwu cannot show the DeepSeek balance").

@@ -52,6 +52,10 @@ CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
 GROK_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
 DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
 DEEPSEEK_COST_URL = "https://platform.deepseek.com/api/v0/usage/by_api_key/cost"
+# OpenRouter 预付充值余额：一把普通 API key 即够（官方文档写 management key，
+# 2026-10-04 实测普通 sk-or- key 也返回 200）。响应 {data: {total_credits,
+# total_usage}}，余额 = 两者之差；无订阅窗口，所以没有消费列。
+OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
 # Command Code 配额：/alpha/* 用 API key 鉴权（Authorization: Bearer）。
 # /internal/* 只认浏览器 session cookie（2026-09-21 实测 API key → 401），
 # 供应商自己的 CLI 1.58.1 也走 /alpha/*，所以以 API key 路径为准。
@@ -396,6 +400,7 @@ FETCH_BY_ID = {
     "grok": "_fetch_grok",
     "nous": "_fetch_nous",
     "commandcode": "_fetch_commandcode",
+    "openrouter": "_fetch_openrouter",
 }
 
 FETCHER_SPECS = _load_fetcher_specs(_IDENTITY_YAML, FETCH_BY_ID)
@@ -1016,7 +1021,7 @@ _ACTION_HINTS = {
     "minimax-cn": "Set MINIMAX_CN_API_KEY (Token Plan subscription key) in the current profile's .env; pay-as-you-go keys do not apply.",
     "minimax": "Set MINIMAX_API_KEY (Token Plan subscription key) in the current profile's .env; pay-as-you-go keys do not apply.",
     "anthropic": "Anthropic credential recognized; no fetcher adapter yet.",
-    "openrouter": "OpenRouter credential recognized; no fetcher adapter yet.",
+    "openrouter": "Set OPENROUTER_API_KEY in the current profile's .env, then refresh.",
     "qwen-dashscope": "A DashScope inference key is not an Alibaba Cloud AccessKey balance; no fetcher adapter yet.",
 }
 
@@ -2060,6 +2065,30 @@ def _fetch_deepseek(now: float, secret: str = "") -> MeterRow:
         )
     except Exception as exc:
         return _row("deepseek", "DEEPSEEK", kind="balance", error=exc)
+
+
+def _fetch_openrouter(now: float, secret: str = "") -> MeterRow:
+    """OpenRouter 预付充值余额（美元）：total_credits − total_usage。
+
+    无订阅窗口的家——只有余额、没有消费列（today/7d/30d 一律不吐，看板也就
+    不画空列）。凭据就是那把普通 sk-or- key；被拒（401/403）由 _row 映射成 auth_error。
+    """
+    try:
+        payload = _json_get(OPENROUTER_CREDITS_URL, secret or _read_env_key("OPENROUTER_API_KEY"))
+        data = payload.get("data") if isinstance(payload, dict) else None
+        total = data.get("total_credits") if isinstance(data, dict) else None
+        used = data.get("total_usage") if isinstance(data, dict) else None
+        if isinstance(total, bool) or not isinstance(total, (int, float)):
+            raise ValueError("Could not parse OpenRouter credits")
+        if isinstance(used, bool) or not isinstance(used, (int, float)):
+            raise ValueError("Could not parse OpenRouter credits")
+        return _row(
+            "openrouter", "OPENROUTER", kind="balance", providerId="openrouter",
+            balance=float(total) - float(used), currency="USD",
+            actionHint=_ACTION_HINTS["openrouter"],
+        )
+    except Exception as exc:
+        return _row("openrouter", "OPENROUTER", kind="balance", error=exc)
 
 
 def _is_identity_mismatch(rows: list[MeterRow]) -> bool:
