@@ -54,8 +54,12 @@ DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
 DEEPSEEK_COST_URL = "https://platform.deepseek.com/api/v0/usage/by_api_key/cost"
 # OpenRouter 预付充值余额：一把普通 API key 即够（官方文档写 management key，
 # 2026-10-04 实测普通 sk-or- key 也返回 200）。响应 {data: {total_credits,
-# total_usage}}，余额 = 两者之差；无订阅窗口，所以没有消费列。
+# total_usage}}，余额 = 两者之差。
 OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits"
+# 同一把 key 自身的信息：消费三列走 /key（usage_daily / usage_weekly / usage_monthly，
+# 文档口径=本 UTC 日 / 本 UTC 周（周一至周日）/ 本 UTC 月，自然窗口）。按日明细
+# （/activity）普通 key 拉不到（实测 403，只有 management key 可以）。
+OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key"
 # Command Code 配额：/alpha/* 用 API key 鉴权（Authorization: Bearer）。
 # /internal/* 只认浏览器 session cookie（2026-09-21 实测 API key → 401），
 # 供应商自己的 CLI 1.58.1 也走 /alpha/*，所以以 API key 路径为准。
@@ -2068,13 +2072,16 @@ def _fetch_deepseek(now: float, secret: str = "") -> MeterRow:
 
 
 def _fetch_openrouter(now: float, secret: str = "") -> MeterRow:
-    """OpenRouter 预付充值余额（美元）：total_credits − total_usage。
+    """OpenRouter 预付充值余额（美元）= total_credits − total_usage。
 
-    无订阅窗口的家——只有余额、没有消费列（today/7d/30d 一律不吐，看板也就
-    不画空列）。凭据就是那把普通 sk-or- key；被拒（401/403）由 _row 映射成 auth_error。
+    余额走 /credits、消费三列走 /key，同一把普通 sk-or- key。消费是**自然窗口**
+    （本 UTC 日 / 本周一至周日 / 本月），与 DeepSeek、XAI 的滚动窗口口径不同 ——
+    OpenRouter 的按日明细只有 management key 能拉（/activity 普通 key 实测 403），
+    自然窗口是零配置可得的上限。消费抓不到不影响余额（与 DEEPSEEK / XAI 同契约）。
     """
+    key = secret or _read_env_key("OPENROUTER_API_KEY")
     try:
-        payload = _json_get(OPENROUTER_CREDITS_URL, secret or _read_env_key("OPENROUTER_API_KEY"))
+        payload = _json_get(OPENROUTER_CREDITS_URL, key)
         data = payload.get("data") if isinstance(payload, dict) else None
         total = data.get("total_credits") if isinstance(data, dict) else None
         used = data.get("total_usage") if isinstance(data, dict) else None
@@ -2082,13 +2089,40 @@ def _fetch_openrouter(now: float, secret: str = "") -> MeterRow:
             raise ValueError("Could not parse OpenRouter credits")
         if isinstance(used, bool) or not isinstance(used, (int, float)):
             raise ValueError("Could not parse OpenRouter credits")
-        return _row(
-            "openrouter", "OPENROUTER", kind="balance", providerId="openrouter",
-            balance=float(total) - float(used), currency="USD",
-            actionHint=_ACTION_HINTS["openrouter"],
-        )
+        balance = float(total) - float(used)
     except Exception as exc:
         return _row("openrouter", "OPENROUTER", kind="balance", error=exc)
+
+    today = seven = thirty = None
+    partial = True
+    try:
+        key_payload = _json_get(OPENROUTER_KEY_URL, key)
+        usage = key_payload.get("data") if isinstance(key_payload, dict) else None
+        spends: list[float] = []
+        for field in ("usage_daily", "usage_weekly", "usage_monthly"):
+            value = usage.get(field) if isinstance(usage, dict) else None
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                spends = []
+                break
+            spends.append(float(value))
+        if spends:
+            today, seven, thirty = spends
+            partial = False
+    except Exception:
+        pass
+
+    return _row(
+        "openrouter", "OPENROUTER", kind="balance", providerId="openrouter",
+        balance=balance, currency="USD",
+        status="partial" if partial else "ok",
+        actionHint=(
+            "Balance available; OpenRouter did not return per-key usage (day/week/month)."
+            if partial
+            else _ACTION_HINTS["openrouter"]
+        ),
+        todaySpend=today, sevenDaySpend=seven, thirtyDaySpend=thirty,
+        todayTone=None, sevenDayTone=None, thirtyDayTone=None, balanceTone=None,
+    )
 
 
 def _is_identity_mismatch(rows: list[MeterRow]) -> bool:
