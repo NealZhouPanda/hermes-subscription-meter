@@ -1364,6 +1364,418 @@ function wholeHelpLines(palette, mode) {
   ]
 }
 
+// ─── Nous Portal 促销跑马灯（2026-10-09 Neal 定）─────────────────────────────
+// 第三层：订阅行、余额行之下，一条持续向左滚动的跑马灯，展示 Portal 当前打折
+// 与免费的模型。数据走 gateway 的 model.options（与 hermes-nous-prices 同源），
+// 不动 Python 后端。本节是插件里唯一出现 'nous' 字面量的地方——渲染组件本身
+// 供应商无关（吃 extractSaleModels 的产物），不破坏「前端只认行上事实」的中立契约。
+const NOUS_PROVIDER_SLUG = 'nous'
+// 2026-10-09 晚通用化（Neal 定「用了哪个平台就能开哪个平台的优惠」）：
+// 开关从单个布尔改为按平台 slug 的映射（JSON 存 localStorage）；旧的单值
+// 'true'/'false' 自动迁移为 { nous: 旧值 }。缺平台默认开——轮播只在真有
+// 优惠数据时才出现，默认开不会凭空多出东西。
+const SALE_TICKER_STORAGE_KEY = 'subscription-meter:sale-ticker'
+const SALE_REFETCH_MS = 5 * 60 * 1000
+const SALE_REFETCH_PENDING_MS = 30 * 1000
+const MARQUEE_SPEED_PX_PER_S = 30
+
+// 促销条目（2026-10-09 样式改版，照 Neal 的行情条参考图）：全名 provider/model、
+// NEW=featured_models、REASONING=capabilities.reasoning、折扣胶囊、价格 $入 / $出
+// 一组 + 原价整组划线。免费模型只显全名 + FREE 胶囊（10-09 Neal 定）。
+// platform = 行的 slug（调用方传入），跑马灯按它过滤「这个平台的开关开了没」。
+// 判据不变：discount>=1 且有原价才进打折组；裸 -100% 无原价不进。
+function extractSaleModels(providerRow, platformSlug = '') {
+  const row = providerRow
+  if (!row || typeof row !== 'object') return []
+  if (row.pricing_pending === true || row.free_tier_pending === true) return []
+  const pricing = row.pricing && typeof row.pricing === 'object' ? row.pricing : {}
+  if (!Object.keys(pricing).length) return []
+  const caps = row.capabilities && typeof row.capabilities === 'object' ? row.capabilities : {}
+  const featured = Array.isArray(row.featured_models) ? new Set(row.featured_models) : null
+  const ids = Array.isArray(row.models) ? row.models : []
+  const items = []
+  for (const id of ids) {
+    if (typeof id !== 'string' || id === '') continue
+    const p = pricing[id]
+    if (!p || typeof p !== 'object') continue
+    const slash = id.indexOf('/')
+    const provider = slash >= 0 ? id.slice(0, slash) : ''
+    const label = slash >= 0 ? id.slice(slash + 1) : id
+    const isNew = featured ? featured.has(id) : false
+    const reasoning = caps[id]?.reasoning === true
+    if (p.free === true) {
+      items.push({ id, platform: platformSlug, provider, label, free: true, isNew, reasoning, discount: null, inPrice: '', wasIn: null, outPrice: '', wasOut: null })
+      continue
+    }
+    const discount = typeof p.discount_percent === 'number' ? Math.round(p.discount_percent) : null
+    if (discount === null || discount < 1) continue
+    const wasIn = p.was_input ?? null
+    const wasOut = p.was_output ?? null
+    if (!wasIn && !wasOut) continue
+    items.push({
+      id,
+      platform: platformSlug,
+      provider,
+      label,
+      free: false,
+      isNew,
+      reasoning,
+      discount,
+      inPrice: typeof p.input === 'string' ? p.input : '',
+      wasIn,
+      outPrice: typeof p.output === 'string' ? p.output : '',
+      wasOut
+    })
+  }
+  // 折扣大的在前；免费档（无折扣数值）排在打折条目之后，同组内按 id 稳定。
+  items.sort((a, b) => (b.discount ?? -1) - (a.discount ?? -1) || a.id.localeCompare(b.id))
+  return items
+}
+
+// 有定价信号（已有价格或定价在途）的行才值得给开关行；纯订阅制无价目的平台
+// （数据源里根本没有 pricing）不出现行——开了也不会有内容。
+function hasPricingSignal(providerRow) {
+  if (!providerRow || typeof providerRow !== 'object') return false
+  const pricing = providerRow.pricing
+  if (pricing && typeof pricing === 'object' && Object.keys(pricing).length > 0) return true
+  return providerRow.pricing_pending === true || providerRow.free_tier_pending === true
+}
+
+function readSaleTickerEnabledMap() {
+  try {
+    const raw = window.localStorage?.getItem(SALE_TICKER_STORAGE_KEY)
+    if (raw === null) return {}
+    if (raw === 'true' || raw === 'false') return { [NOUS_PROVIDER_SLUG]: raw === 'true' }
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const map = {}
+    for (const [slug, value] of Object.entries(parsed)) {
+      if (typeof slug === 'string' && slug) map[slug] = value === true
+    }
+    return map
+  } catch (error) {
+    return {}
+  }
+}
+
+function writeSaleTickerEnabledMap(map) {
+  try {
+    window.localStorage?.setItem(SALE_TICKER_STORAGE_KEY, JSON.stringify(map))
+  } catch (error) {
+    // 存不下就算了：本次会话仍生效（事件已派发），下次打开回默认开。
+  }
+}
+
+// 跨窗口同步与 useColorMode 同一条路：本窗口 settings-changed 广播 + 其他窗口 storage 事件。
+// 返回 [映射, setPlatformEnabled]；查某平台用 enabledMap[slug] !== false（缺省=开）。
+// （2026-10-09 晚：开关行已嵌进各平台卡片，独立的 SaleTickerSettingRow 区块删除。）
+function useSaleTickerEnabledMap() {
+  const [enabledMap, setEnabledMapState] = useState(readSaleTickerEnabledMap)
+  useEffect(() => {
+    const sync = () => setEnabledMapState(readSaleTickerEnabledMap())
+    const onStorage = event => {
+      if (event.key === null || event.key === SALE_TICKER_STORAGE_KEY) sync()
+    }
+    window.addEventListener('subscription-meter:settings-changed', sync)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('subscription-meter:settings-changed', sync)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+  const setPlatformEnabled = useCallback((slug, value) => {
+    const next = { ...readSaleTickerEnabledMap(), [slug]: value === true }
+    writeSaleTickerEnabledMap(next)
+    setEnabledMapState(next)
+    notifySettingsChanged()
+  }, [])
+  return [enabledMap, setPlatformEnabled]
+}
+
+// 条目排版（照参考图）：provider/model 全名等宽粗体 → NEW/REASONING 徽章 →
+// 折扣胶囊（暗底橙字）→ 价格组 `$in / $out`（现价白，原价整组划线灰）。
+// 胶囊用 color-mix 调暗底色，只基于主题变量，不硬编码色值。
+function saleBadge(text, textColor, bgStyle) {
+  return jsx('span', {
+    style: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '0.35em',
+      padding: '0.1em 0.55em',
+      borderRadius: 4,
+      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontSize: '0.56rem',
+      fontWeight: 600,
+      letterSpacing: '0.06em',
+      textTransform: 'uppercase',
+      color: textColor,
+      ...bgStyle
+    },
+    children: text
+  })
+}
+
+function saleItemNode(item) {
+  const fullName = item.provider ? `${item.provider}/${item.label}` : item.label
+  const saleBadgeStyle = {
+    backgroundColor: 'color-mix(in srgb, var(--ui-orange) 16%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--ui-orange) 38%, transparent)'
+  }
+  const newBadgeStyle = {
+    backgroundColor: 'color-mix(in srgb, var(--ui-text-tertiary) 18%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--ui-text-tertiary) 30%, transparent)'
+  }
+  const reasoningBadgeStyle = {
+    backgroundColor: 'color-mix(in srgb, var(--ui-accent) 14%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--ui-accent) 32%, transparent)'
+  }
+  // 现价组 `$in / $out`；原价整组划线（有任一原价才画）。
+  const pricesNode = item.free
+    ? null
+    : jsxs('span', {
+        className: 'font-mono tabular-nums',
+        style: { display: 'inline-flex', alignItems: 'baseline', gap: '0.5em', whiteSpace: 'nowrap' },
+        children: [
+          jsxs('span', {
+            style: { color: 'var(--ui-text-primary)' },
+            children: [
+              item.inPrice || '?',
+              jsx('span', { style: { color: 'var(--ui-text-quaternary)' }, children: ' / ' }),
+              item.outPrice || '?'
+            ]
+          }, 'now'),
+          (item.wasIn || item.wasOut)
+            ? jsxs('s', {
+                style: { color: 'var(--ui-text-quaternary)' },
+                children: [
+                  item.wasIn || '?',
+                  jsx('span', { children: ' / ' }),
+                  item.wasOut || '?'
+                ]
+              }, 'was')
+            : null
+        ]
+      }, 'prices')
+  return jsxs('span', {
+    style: { display: 'inline-flex', alignItems: 'center', gap: '0.55em', whiteSpace: 'nowrap' },
+    children: [
+      jsx('span', {
+        className: 'font-mono tabular-nums font-semibold',
+        style: { color: 'var(--ui-text-primary)' },
+        children: fullName
+      }, 'name'),
+      item.isNew ? saleBadge('new', 'var(--ui-text-secondary)', newBadgeStyle) : null,
+      item.reasoning ? saleBadge('reasoning', 'var(--ui-accent)', reasoningBadgeStyle) : null,
+      item.free
+        ? saleBadge('free', 'var(--ui-orange)', saleBadgeStyle)
+        : saleBadge(`-${item.discount}%`, 'var(--ui-orange)', saleBadgeStyle),
+      pricesNode
+    ]
+  })
+}
+
+// 数据轮询：与面板 /data 同一套 load/aliveRef 手法，不用 react-query——useQuery 是
+// SDK 出口，本文件的测试沙箱（假渲染器会真执行子组件函数）里没有这个标识符，一用
+// 就整片 ReferenceError。冷启动定价缓存未热时相关行带 pending，30s 短轮询焐热；
+// 拿到 pricing 后回 5 分钟。失败静默保留现状（这层是锦上添花，不配弹通知）。
+// 2026-10-09 通用化：返回全部带定价信号的行（slug → 行），跑马灯/开关行各自按平台取用。
+// 注意：多个实例（底部条 + 完整页 + 设置入口）各自一条链，5 分钟一次的重型 RPC
+// 频率与 App 自家模型选择器同量级，不值得为去重引入共享 store。
+function useProviderSaleCatalog(profile) {
+  const [rowsBySlug, setRowsBySlug] = useState({})
+  useEffect(() => {
+    let alive = true
+    let timer = 0
+    let currentMs = 0
+    // interval 按「下次该等多久」重挂（pending 30s / 正常 5min）：setInterval/clearInterval
+    // 是本文件测试沙箱注入的原语，setTimeout 不是——别换回去。
+    const schedule = ms => {
+      if (!alive || ms === currentMs) return
+      if (timer) clearInterval(timer)
+      currentMs = ms
+      timer = setInterval(() => void load(), ms)
+    }
+    const load = async () => {
+      let pending = false
+      try {
+        const payload = await host.request('model.options', {})
+        if (!alive) return
+        const next = {}
+        for (const row of payload?.providers ?? []) {
+          const slug = typeof row?.slug === 'string' ? row.slug : ''
+          if (!slug || !hasPricingSignal(row)) continue
+          next[slug] = row
+          if (row.pricing_pending === true || row.free_tier_pending === true) pending = true
+        }
+        setRowsBySlug(next)
+      } catch (error) {
+        if (!alive) return
+      }
+      schedule(pending ? SALE_REFETCH_PENDING_MS : SALE_REFETCH_MS)
+    }
+    // 切 profile 先清旧行：绝不拿上一个 profile 的促销撑这一帧（09-12 定则）。
+    setRowsBySlug({})
+    void load()
+    return () => {
+      alive = false
+      if (timer) clearInterval(timer)
+    }
+  }, [profile])
+  return rowsBySlug
+}
+
+// 数据行：useQuery 不能用（见 useProviderSaleCatalog 注释）。渲染路径只碰 useState /
+// 提炼函数 / JSX——测试沙箱裸调本组件也不炸。跑马灯聚合所有「开关开着」的平台条目，
+// 全局按折扣排序；全关或全无数据 → 不渲染。
+function SaleTickerSection({ profile }) {
+  const [enabledMap] = useSaleTickerEnabledMap()
+  const rowsBySlug = useProviderSaleCatalog(profile)
+  const saleModels = []
+  for (const [slug, row] of Object.entries(rowsBySlug)) {
+    if (enabledMap[slug] === false) continue
+    saleModels.push(...extractSaleModels(row, slug))
+  }
+  saleModels.sort((a, b) => (b.discount ?? -1) - (a.discount ?? -1) || a.id.localeCompare(b.id))
+  if (!saleModels.length) return null
+  return jsx(SaleMarquee, { saleModels })
+}
+
+// 手动滑动（滚轮/拖拽）后把位移规整到 [0, 周期)：双份内容无缝循环对任意位移都成立，
+// 负值（向右拖过头）与超周期值都映射回合法区间。
+function normalizeMarqueeOffset(offset, cycle) {
+  if (!cycle || cycle <= 0) return offset
+  return ((offset % cycle) + cycle) % cycle
+}
+
+// 跑马灯本体：内容渲染两份首尾相接，rAF 按 dt 累计左移，移过一个周期就取模——
+// 速度恒定、循环无缝、恢复不跳变。悬停暂停（自动滚动冻结），此时支持两种手动
+// 浏览（2026-10-09 Neal 定）：① 滚轮横向擦洗（React onWheel 是 passive 的，
+// preventDefault 无效，必须挂原生非被动监听）；② 按住左键拖拽。手动与自动共用
+// 同一个 offset 并取模规整，鼠标移开后自动滚动从当前位置继续，不跳回。
+// 所有 hooks 在 early return 之前（React #310 防线）。
+function SaleMarquee({ saleModels }) {
+  const containerRef = useRef(null)
+  const trackRef = useRef(null)
+  const halfWidthRef = useRef(0)
+  const offsetRef = useRef(0)
+  const pausedRef = useRef(false)
+  const dragRef = useRef(null)
+  const contentReady = Array.isArray(saleModels) && saleModels.length > 0
+  useEffect(() => {
+    if (!contentReady) return undefined
+    let raf = 0
+    let last = null
+    // 回绕点必须量真实周期（B 组首条 offsetLeft − A 组首条 offsetLeft），
+    // 不能用 scrollWidth/2：容器里 2n 条共 2n−1 个 gap，半宽 ≠ 周期，
+    // 差 (n−1)g/2，每次回绕会肉眼可见地跳。
+    const measure = () => {
+      const track = trackRef.current
+      const kids = track ? track.children : []
+      halfWidthRef.current = kids.length > 1
+        ? Math.max(0, kids[kids.length / 2].offsetLeft - kids[0].offsetLeft)
+        : 0
+    }
+    const apply = () => {
+      const track = trackRef.current
+      if (track) track.style.transform = `translateX(-${offsetRef.current}px)`
+    }
+    const step = ts => {
+      if (!pausedRef.current) {
+        if (halfWidthRef.current <= 0) measure()
+        const cycle = halfWidthRef.current
+        if (cycle > 0) {
+          const lastTs = last ?? ts
+          offsetRef.current = normalizeMarqueeOffset(
+            offsetRef.current + (ts - lastTs) / 1000 * MARQUEE_SPEED_PX_PER_S, cycle)
+          apply()
+        }
+      }
+      last = ts
+      raf = requestAnimationFrame(step)
+    }
+    // 滚轮擦洗：横向分量优先（触控板双指），纯纵向滚轮也映射为横向（悬停时用户
+    // 意图是找模型，不是滚动面板）；preventDefault 阻止面板竖向滚动。
+    const el = containerRef.current
+    const onWheel = event => {
+      const cycle = halfWidthRef.current
+      if (!cycle) return
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+      if (!delta) return
+      event.preventDefault()
+      offsetRef.current = normalizeMarqueeOffset(offsetRef.current + delta, cycle)
+      apply()
+    }
+    el?.addEventListener?.('wheel', onWheel, { passive: false })
+    raf = requestAnimationFrame(step)
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {
+      offsetRef.current = 0
+      measure()
+    }) : null
+    ro?.observe(trackRef.current)
+    return () => {
+      cancelAnimationFrame(raf)
+      el?.removeEventListener?.('wheel', onWheel)
+      ro?.disconnect()
+    }
+  }, [contentReady])
+  if (!contentReady) return null
+  const applyTransform = () => {
+    const track = trackRef.current
+    if (track) track.style.transform = `translateX(-${offsetRef.current}px)`
+  }
+  const onPointerDown = event => {
+    if (event.button !== 0) return
+    dragRef.current = { startX: event.clientX, startOffset: offsetRef.current }
+    // 拖拽期间强制暂停：按住左键移出容器会触发 onMouseLeave 误解除暂停，
+    // 导致拖拽中跑马灯仍在自动走（E-4 2026-10-09 发现）。
+    pausedRef.current = true
+    containerRef.current?.setPointerCapture?.(event.pointerId)
+  }
+  const onPointerMove = event => {
+    const drag = dragRef.current
+    const cycle = halfWidthRef.current
+    if (!drag || !cycle) return
+    offsetRef.current = normalizeMarqueeOffset(drag.startOffset - (event.clientX - drag.startX), cycle)
+    applyTransform()
+  }
+  const endDrag = event => {
+    if (!dragRef.current) return
+    dragRef.current = null
+    containerRef.current?.releasePointerCapture?.(event.pointerId)
+    // 松手时按指针真实位置重设暂停态：仍在容器内=继续暂停（后续 mouseleave 接管），
+    // 已移出=恢复自动滚动（后续 mouseenter 接管）。边界事件在拖拽中不可靠，只能主动判。
+    const rect = containerRef.current?.getBoundingClientRect?.()
+    if (rect) {
+      const inside = event.clientX >= rect.left && event.clientX <= rect.right
+        && event.clientY >= rect.top && event.clientY <= rect.bottom
+      pausedRef.current = inside
+    }
+  }
+  return jsx('div', {
+    ref: containerRef,
+    'data-zone': 'sale-ticker',
+    className: 'relative shrink-0 overflow-hidden border-t border-(--ui-stroke-secondary)',
+    style: { marginTop: 2, paddingTop: 8, cursor: 'grab', userSelect: 'none', touchAction: 'pan-y' },
+    onMouseEnter: () => { pausedRef.current = true },
+    onMouseLeave: () => { pausedRef.current = false },
+    onFocusCapture: () => { pausedRef.current = true },
+    onBlurCapture: () => { pausedRef.current = false },
+    onPointerDown,
+    onPointerMove,
+    onPointerUp: endDrag,
+    onPointerCancel: endDrag,
+    children: jsxs('div', {
+      ref: trackRef,
+      className: 'flex w-max items-center text-[0.65rem]',
+      style: { columnGap: '3em', willChange: 'transform' },
+      children: [
+        saleModels.map(item => jsx('span', { style: { display: 'inline-flex' }, children: saleItemNode(item) }, `a-${item.id}`)),
+        saleModels.map(item => jsx('span', { style: { display: 'inline-flex' }, children: saleItemNode(item) }, `b-${item.id}`))
+      ]
+    })
+  })
+}
+
 // 显示偏好（按机器保存）：高对比度配色，服务色觉异常用户（2026-09-26 Neal 定）。
 // 与苹果「Differentiate Without Colour」、Discord Colorblind Mode 同一条路：
 // 换一套对三种色觉类型都可区分的配色，并给每个格子加描边 —— 颜色不单独承载信息。
@@ -1442,7 +1854,26 @@ function UsageHelpSection() {
   })
 }
 
-function ProviderSettingsPanel({ rest }) {
+function ProviderSettingsPanel(props) {
+  // 沙箱安全桥（2026-10-09 晚）：provider-settings-ui / row-min-height 的测试沙箱
+  // 裸调本函数且不注入 useValue/host——函数体里直接放促销 hook 必炸。所以 hook
+  // 全部住在 WithSaleTicker 里；真实 App 走包装，沙箱只拿到带假 host 的回退分支
+  //（促销开关不显示，其余开关全数可测）。
+  if (typeof host?.state?.profile?.get !== 'function') {
+    return ProviderSettingsPanelBody(props)
+  }
+  return jsx(ProviderSettingsPanelWithSaleTicker, props)
+}
+
+function ProviderSettingsPanelWithSaleTicker(props) {
+  const profile = useValue(host.state.profile)
+  const [saleTickerMap, setSaleTickerPlatform] = useSaleTickerEnabledMap()
+  const saleSlugs = useProviderSaleCatalog(profile)
+  return ProviderSettingsPanelBody({ ...props, saleTickerMap, setSaleTickerPlatform, saleSlugs })
+}
+
+function ProviderSettingsPanelBody({ rest, saleTickerMap = {}, setSaleTickerPlatform = () => {}, saleSlugs = {} }) {
+
   const [providers, setProviders] = useState([])
   const [state, setState] = useState('loading')
   const [savingId, setSavingId] = useState(null)
@@ -1643,6 +2074,23 @@ function ProviderSettingsPanel({ rest }) {
                             disabled: state === 'loading' || savingId !== null || refreshing,
                             'aria-label': `Show monthly quota for ${provider.label}`,
                             onCheckedChange: checked => void toggleMonthly(provider.id, checked)
+                          })
+                        ]
+                      })
+                    : null,
+                  // 促销跑马灯（第三枚小开关）：只给有定价数据的平台；关掉=跑马灯里摘掉这家。
+                  saleSlugs[provider.id]
+                    ? jsxs('label', {
+                        className: 'flex items-center gap-1',
+                        children: [
+                          jsx('span', {
+                            className: 'text-[0.6rem] text-(--ui-text-tertiary)',
+                            children: 'Sale ticker'
+                          }),
+                          jsx(Switch, {
+                            checked: saleTickerMap[provider.id] !== false,
+                            'aria-label': `Sale ticker for ${provider.label}`,
+                            onCheckedChange: checked => setSaleTickerPlatform(provider.id, checked)
                           })
                         ]
                       })
@@ -1849,7 +2297,10 @@ function SubscriptionMeterBody({ rest }) {
               }, `subscription-${subscription.id || index}`)
             )
           })
-        : null
+        : null,
+      // 第三层：Portal 促销跑马灯（2026-10-09）。children 数组固定末位 + key，
+      // 时钟 tick 每 10s 重渲染不丢跑马灯内部状态；开关关着/无促销时组件自己 null。
+      jsx(SaleTickerSection, { key: 'sale-ticker', profile: activeProfile })
     ]
   })
 }
