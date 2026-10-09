@@ -2,6 +2,8 @@
 
 A subscription-quota dashboard plugin for [Hermes Agent](https://hermes-agent.nousresearch.com). This is not a progress bar: quota is measured in time and drawn as a cell matrix, so how much you have used and how much is left is obvious at a glance, and the color shift tells you the current quota status. The board reads in three zones: the **weekly zone** (84 cells, 7 days × 12 a day, with the 5-hour window overlaid on it), a divider, the **monthly zone** for plans that also cap a month (8-hour cells, 3 a day — a 30-day month is 90 cells), a divider, and the **balance zone** for prepaid accounts. When choosing is hard, the plugin automatically ranks **the model it suggests you use first for the problem at hand** at the top.
 
+Under the board sits a **sale ticker**: the models the Nous Portal is currently discounting or giving away, scrolling past with their current price and the original struck through.
+
 **Provider visibility is controlled from the UI** — show or hide each provider yourself, no config-file edits.
 
 ## Screenshot
@@ -60,9 +62,9 @@ it when the spend columns go blank again. Nothing else about the provider depend
 
 ## How it works
 
-- `desktop/plugin.js` — the desktop panel: the weekly matrix (84 cells) with the 5-hour lock overlay, the monthly zone (8-hour cells, sized to the length of the current month), balance bars, automatic ranking of the model it suggests you use first, and per-provider visibility toggles. A monthly quota is shown by default when detected; the provider-specific switch can hide it.
+- `desktop/plugin.js` — the desktop panel: the weekly matrix (84 cells) with the 5-hour lock overlay, the monthly zone (8-hour cells, sized to the length of the current month), balance bars, automatic ranking of the model it suggests you use first, per-provider visibility toggles, and a sale ticker under the board (current price against the struck-through original, free models, and a per-provider switch). A monthly quota is shown by default when detected; the provider-specific switch can hide it.
 - `dashboard/plugin_api.py` — a FastAPI router that turns credentials into provider-neutral quota rows. Secrets stay in memory only; they never appear in API responses, logs or error strings.
-- `tests/` — 109 frontend tests (node:test) + 132 backend tests (pytest).
+- `tests/` — 209 frontend tests (node:test) + 165 backend tests (pytest).
 
 ## Development
 
