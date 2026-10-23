@@ -452,6 +452,263 @@ function useColorMode() {
   return mode
 }
 
+const LOCALE_STORAGE_KEY = 'subscription-meter:locale'
+const LOCALE_IDS = ['zh-Hans', 'zh-Hant', 'en']
+
+function readLocale() {
+  try {
+    const stored = window.localStorage?.getItem(LOCALE_STORAGE_KEY)
+    return LOCALE_IDS.includes(stored) ? stored : 'en'
+  } catch (error) {
+    return 'en'
+  }
+}
+
+function writeLocale(locale) {
+  try {
+    window.localStorage?.setItem(LOCALE_STORAGE_KEY, LOCALE_IDS.includes(locale) ? locale : 'en')
+  } catch (error) {
+    // 存不下就算了：本次会话仍靠已派发的事件生效。
+  }
+}
+
+function useLocale() {
+  const [locale, setLocale] = useState(readLocale)
+  useEffect(() => {
+    const sync = () => setLocale(readLocale())
+    window.addEventListener('subscription-meter:settings-changed', sync)
+    window.addEventListener('storage', sync)
+    return () => {
+      window.removeEventListener('subscription-meter:settings-changed', sync)
+      window.removeEventListener('storage', sync)
+    }
+  }, [])
+  return locale
+}
+
+function t(locale, key) {
+  const pack = LOCALE_STRINGS[locale] || LOCALE_STRINGS.en
+  const value = pack[key]
+  return typeof value === 'string' && value ? value : (LOCALE_STRINGS.en[key] || key)
+}
+
+function textOr(locale, key, english) {
+  return !locale || locale === 'en' ? english : t(locale, key)
+}
+
+function connectionLabel(locale, status) {
+  const code = status || 'unknown'
+  if (!locale || locale === 'en') return CONNECTION_LABELS[code] || CONNECTION_LABELS.unknown
+  return t(locale, `status_${code}`)
+}
+
+function localizedHelp(locale, palette, mode) {
+  const base = wholeHelpLines(palette, mode)
+  if (!locale || locale === 'en') return base
+  const pack = LOCALE_STRINGS[locale] || {}
+  const lines = isHighContrast(mode) ? pack.helpContrast : pack.help
+  if (!Array.isArray(lines) || lines.length !== base.length) return base
+  return base.map((item, index) => ({ ...item, text: lines[index] }))
+}
+
+// >>> locale-strings >>>
+const LOCALE_OPTIONS = [
+  { id: 'zh-Hans', label: '简体中文' },
+  { id: 'zh-Hant', label: '繁體中文' },
+  { id: 'en', label: 'English' },
+]
+const LOCALE_STRINGS = {
+  en: {
+    display: 'Display',
+    language: 'Plugin language',
+    highContrast: 'High-contrast colors',
+    highContrastHelp: 'For colour-vision deficiencies: every cell gets an outline, and the matrix uses a palette that stays distinguishable with protanopia, deuteranopia or tritanopia. Saved on this computer.',
+    howToRead: 'How to read the board',
+    refresh: 'Refresh',
+    checking: 'Checking connections…',
+    needAttention: '{count} of {total} need attention',
+    keys: 'Keys are never stored on this page.',
+    refreshFailed: 'Could not refresh connection status — try again.',
+    saveFailed: 'Save failed — toggle again.',
+    balanceKind: 'Account balance',
+    quotaKind: 'Subscription quota · 84 cells',
+    needs: 'Needs',
+    optional: 'Optional',
+    monthly: 'Show monthly quota',
+    sale: 'Sale ticker',
+    lastChecked: 'Last checked',
+    tokenActivity: 'Token activity',
+    daily: 'Daily',
+    weekly: 'Weekly',
+    cumulative: 'Cumulative',
+    totalTokens: 'Total tokens',
+    peakDay: 'Peak day',
+    topModel: 'Top model',
+    dailyAverage: 'Daily average',
+    activeDays: 'Active days',
+    activitySummary: '{total} tokens total · {days} active days{since} · local ledgers only',
+    activitySince: ' · since {date}',
+    activityEmpty: 'Per-day token usage across this install’s profiles (read-only).',
+    statsUnavailable: 'Token stats unavailable — the backend did not respond. Try reopening settings.',
+    activityUnavailable: 'Token activity unavailable — the backend did not respond. Try reopening settings.',
+    activityLoading: 'Loading token activity…',
+    activityNone: 'No token activity recorded yet.',
+    status_unknown: 'Not checked yet',
+    status_disabled: 'Hidden · not fetched',
+    status_unconfigured: 'Not configured',
+    status_ok: 'Last check succeeded',
+    status_partial: 'Partial data available',
+    status_auth_error: 'Auth or permission failed',
+    status_request_error: 'Request failed',
+    status_unrecognized: 'API key not recognized',
+    status_no_fetcher: 'No fetcher available',
+  },
+  'zh-Hans': {
+    display: '显示',
+    language: '插件语言',
+    highContrast: '高对比颜色',
+    highContrastHelp: '给色觉异常使用：每个格子加描边，矩阵换一套红绿色弱也能分开的颜色。存在这台电脑上。',
+    howToRead: '怎么读这块板',
+    refresh: '刷新',
+    checking: '正在检查连接…',
+    needAttention: '{total} 家中有 {count} 家要处理',
+    keys: '钥匙不会存在这一页上。',
+    refreshFailed: '连接状态没刷新成 — 再试一次。',
+    saveFailed: '保存失败 — 再拨一次开关。',
+    balanceKind: '账户余额',
+    quotaKind: '订阅额度 · 84 格',
+    needs: '需要',
+    optional: '可选',
+    monthly: '显示月额度',
+    sale: '促销条',
+    lastChecked: '上次检查',
+    tokenActivity: 'Token 用量',
+    daily: '按日',
+    weekly: '按周',
+    cumulative: '累计',
+    totalTokens: 'Token 总消耗',
+    peakDay: 'Token 单日消耗最高',
+    topModel: '用量最多的模型',
+    dailyAverage: '日均 Token 消耗',
+    activeDays: '活跃天数',
+    activitySummary: '共 {total} token · {days} 个活跃天{since} · 仅本地账本',
+    activitySince: ' · 自 {date} 起',
+    activityEmpty: '这台安装里各人格的每日 token 用量（只读）。',
+    statsUnavailable: 'Token 数字没取到 — 后端没回应。重新打开设置再试。',
+    activityUnavailable: 'Token 用量没取到 — 后端没回应。重新打开设置再试。',
+    activityLoading: '正在读取 Token 用量…',
+    activityNone: '还没有记录到 Token 用量。',
+    status_unknown: '还没检查',
+    status_disabled: '已隐藏 · 不抓取',
+    status_unconfigured: '未配置',
+    status_ok: '上次检查成功',
+    status_partial: '只拿到一部分',
+    status_auth_error: '认证或权限失败',
+    status_request_error: '请求失败',
+    status_unrecognized: '认不出这把钥匙',
+    status_no_fetcher: '还没有抓取适配器',
+    help: [
+      '84 格把额度对齐到周期时间；每格 = 窗口 / 84（7 天窗口 = 2 小时）。',
+      '绿：剩余可用额度',
+      '深绿：被 5 小时窗口锁住的剩余额度',
+      '天蓝：富余额度',
+      '深蓝：被 5 小时窗口锁住的富余额度',
+      '橙：超额使用',
+      '套餐名旁边的圆点用来区分供应方；余额行用同一颜色。灰色表示这一行现在用不了。',
+      '“剩余 N%”是还剩的额度，不是已用。“Reset”是离下一周期还有多久。',
+      '“Unknown —”表示没有返回额度百分比，所以不显示富余。',
+      '“ERR”是固定的安全提示；刷新失败会保留上次成功的数据，并标成过期。',
+      '灰色行 = 现在不可用：余额用尽或到顶，或 5 小时 / 周窗口用完。格子颜色不变，灰是行状态，不是新的额度档。',
+    ],
+    helpContrast: [
+      '84 格把额度对齐到周期时间；每格 = 窗口 / 84（7 天窗口 = 2 小时）。',
+      '绿：剩余可用额度',
+      '深绿：被 5 小时窗口锁住的剩余额度',
+      '黄：富余额度',
+      '深黄：被 5 小时窗口锁住的富余额度',
+      '红：超额使用',
+      '套餐名旁边的圆点用来区分供应方；余额行用同一颜色。灰色表示这一行现在用不了。',
+      '“剩余 N%”是还剩的额度，不是已用。“Reset”是离下一周期还有多久。',
+      '“Unknown —”表示没有返回额度百分比，所以不显示富余。',
+      '“ERR”是固定的安全提示；刷新失败会保留上次成功的数据，并标成过期。',
+      '灰色行 = 现在不可用：余额用尽或到顶，或 5 小时 / 周窗口用完。格子颜色不变，灰是行状态，不是新的额度档。',
+    ],
+  },
+  'zh-Hant': {
+    display: '顯示',
+    language: '插件語言',
+    highContrast: '高對比顏色',
+    highContrastHelp: '給色覺異常使用：每個格子加描邊，矩陣換一套紅綠色弱也能分開的顏色。存在這台電腦上。',
+    howToRead: '怎麼讀這塊板',
+    refresh: '重新整理',
+    checking: '正在檢查連接…',
+    needAttention: '{total} 家中有 {count} 家要處理',
+    keys: '鑰匙不會存在這一頁上。',
+    refreshFailed: '連接狀態沒重新整理成 — 再試一次。',
+    saveFailed: '儲存失敗 — 再撥一次開關。',
+    balanceKind: '帳戶餘額',
+    quotaKind: '訂閱額度 · 84 格',
+    needs: '需要',
+    optional: '可選',
+    monthly: '顯示月額度',
+    sale: '促銷條',
+    lastChecked: '上次檢查',
+    tokenActivity: 'Token 用量',
+    daily: '按日',
+    weekly: '按週',
+    cumulative: '累計',
+    totalTokens: 'Token 總消耗',
+    peakDay: 'Token 單日消耗最高',
+    topModel: '用量最多的模型',
+    dailyAverage: '日均 Token 消耗',
+    activeDays: '活躍天數',
+    activitySummary: '共 {total} token · {days} 個活躍天{since} · 僅本地帳本',
+    activitySince: ' · 自 {date} 起',
+    activityEmpty: '這台安裝裡各人格的每日 token 用量（唯讀）。',
+    statsUnavailable: 'Token 數字沒取到 — 後端沒回應。重新打開設定再試。',
+    activityUnavailable: 'Token 用量沒取到 — 後端沒回應。重新打開設定再試。',
+    activityLoading: '正在讀取 Token 用量…',
+    activityNone: '還沒有記錄到 Token 用量。',
+    status_unknown: '還沒檢查',
+    status_disabled: '已隱藏 · 不抓取',
+    status_unconfigured: '未設定',
+    status_ok: '上次檢查成功',
+    status_partial: '只拿到一部分',
+    status_auth_error: '認證或權限失敗',
+    status_request_error: '請求失敗',
+    status_unrecognized: '認不出這把鑰匙',
+    status_no_fetcher: '還沒有抓取配接器',
+    help: [
+      '84 格把額度對齊到週期時間；每格 = 視窗 / 84（7 天視窗 = 2 小時）。',
+      '綠：剩餘可用額度',
+      '深綠：被 5 小時視窗鎖住的剩餘額度',
+      '天藍：富餘額度',
+      '深藍：被 5 小時視窗鎖住的富餘額度',
+      '橙：超額使用',
+      '方案名旁邊的圓點用來區分供應方；餘額行用同一顏色。灰色表示這一行現在用不了。',
+      '「剩餘 N%」是還剩的額度，不是已用。「Reset」是離下一週期還有多久。',
+      '「Unknown —」表示沒有返回額度百分比，所以不顯示富餘。',
+      '「ERR」是固定的安全提示；重新整理失敗會保留上次成功的資料，並標成過期。',
+      '灰色行 = 現在不可用：餘額用盡或到頂，或 5 小時 / 週視窗用完。格子顏色不變，灰是行狀態，不是新的額度檔。',
+    ],
+    helpContrast: [
+      '84 格把額度對齊到週期時間；每格 = 視窗 / 84（7 天視窗 = 2 小時）。',
+      '綠：剩餘可用額度',
+      '深綠：被 5 小時視窗鎖住的剩餘額度',
+      '黃：富餘額度',
+      '深黃：被 5 小時視窗鎖住的富餘額度',
+      '紅：超額使用',
+      '方案名旁邊的圓點用來區分供應方；餘額行用同一顏色。灰色表示這一行現在用不了。',
+      '「剩餘 N%」是還剩的額度，不是已用。「Reset」是離下一週期還有多久。',
+      '「Unknown —」表示沒有返回額度百分比，所以不顯示富餘。',
+      '「ERR」是固定的安全提示；重新整理失敗會保留上次成功的資料，並標成過期。',
+      '灰色行 = 現在不可用：餘額用盡或到頂，或 5 小時 / 週視窗用完。格子顏色不變，灰是行狀態，不是新的額度檔。',
+    ],
+  },
+}
+// <<< locale-strings <<<
+
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
 }
@@ -1781,32 +2038,58 @@ function SaleMarquee({ saleModels }) {
 // 换一套对三种色觉类型都可区分的配色，并给每个格子加描边 —— 颜色不单独承载信息。
 function DisplaySettingsSection() {
   const mode = useColorMode()
-  return jsxs('div', {
-    className: 'mt-3 rounded-md border border-(--ui-stroke-secondary) p-3',
+  const locale = useLocale()
+  const row = (label, extra, control) => jsxs('div', {
+    className: 'flex items-center justify-between gap-4',
+    style: { paddingTop: 8, paddingBottom: 8 },
     children: [
-      jsx('h2', { className: 'text-sm font-medium text-foreground', children: 'Display' }),
-      jsxs('label', {
-        className: 'mt-2 flex items-start gap-2',
+      jsxs('div', {
+        className: 'flex min-w-0 items-baseline gap-2',
         children: [
-          jsx(Switch, {
-            checked: isHighContrast(mode),
-            'aria-label': 'High-contrast colors',
-            onCheckedChange: checked => {
-              writeColorMode(checked ? HIGH_CONTRAST_MODE : 'default')
-              notifySettingsChanged()
-            }
-          }),
-          jsxs('span', {
-            className: 'text-[0.7rem] leading-snug text-(--ui-text-secondary)',
-            children: [
-              jsx('span', { className: 'block text-foreground', children: 'High-contrast colors' }),
-              jsx('span', {
-                children: 'For colour-vision deficiencies: every cell gets an outline, and the matrix uses a palette that stays distinguishable with protanopia, deuteranopia or tritanopia. Saved on this computer.'
-              })
-            ]
-          })
+          jsx('span', { className: 'shrink-0 text-sm text-foreground', children: label }),
+          extra ? jsx('span', {
+            className: 'min-w-0 text-[0.65rem] leading-snug text-(--ui-text-secondary)',
+            title: extra,
+            children: extra
+          }) : null
         ]
-      })
+      }),
+      jsx('div', { className: 'shrink-0', children: control })
+    ]
+  })
+  return jsxs('div', {
+    className: 'sm-part',
+    children: [
+      row(
+        t(locale, 'highContrast'),
+        t(locale, 'highContrastHelp'),
+        jsx(Switch, {
+          checked: isHighContrast(mode),
+          'aria-label': 'High-contrast colors',
+          onCheckedChange: checked => {
+            writeColorMode(checked ? HIGH_CONTRAST_MODE : 'default')
+            notifySettingsChanged()
+          }
+        })
+      ),
+      row(
+        t(locale, 'language'),
+        null,
+        jsx('select', {
+          className: 'rounded border border-(--ui-stroke-secondary) bg-transparent text-xs text-foreground',
+          style: { padding: '4px 8px' },
+          value: locale,
+          'aria-label': 'Language',
+          onChange: event => {
+            writeLocale(event.target.value)
+            notifySettingsChanged()
+          },
+          children: LOCALE_OPTIONS.map(option => jsx('option', {
+            value: option.id,
+            children: option.label
+          }, option.id))
+        })
+      )
     ]
   })
 }
@@ -1814,19 +2097,20 @@ function DisplaySettingsSection() {
 // 五色图例（2026-09-12 Neal 定，与 Neal 截图一致，一条一行）：色块对准那一行。
 function UsageHelpSection() {
   const mode = useColorMode()
+  const locale = useLocale()
   const palette = paletteFor(mode)
   const swatchOutline = isHighContrast(mode) ? HIGH_CONTRAST_CELL_OUTLINE : undefined
   return jsxs('div', {
-    className: 'mt-3 rounded-md border border-(--ui-stroke-secondary) p-3',
+    className: 'sm-part',
     children: [
       jsx('h2', {
         className: 'text-sm font-medium text-foreground',
-        children: 'Legend & notes'
+        children: t(locale, 'howToRead')
       }),
       jsx('div', {
-        // 可滚动：说明条目多时不挤坏设置窗口（maxHeight + overflowY auto）。
-        style: { marginTop: 8, maxHeight: 260, overflowY: 'auto', fontSize: '0.72rem', lineHeight: 1.5, color: 'var(--ui-text-secondary)' },
-        children: wholeHelpLines(palette, mode).map(item =>
+        className: 'mt-2',
+        style: { maxHeight: 260, overflowY: 'auto', fontSize: '0.72rem', lineHeight: 1.5, color: 'var(--ui-text-secondary)' },
+        children: localizedHelp(locale, palette, mode).map(item =>
           jsxs('span', {
             style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 },
             children: [
@@ -1854,6 +2138,427 @@ function UsageHelpSection() {
   })
 }
 
+// >>> token-activity >>>
+// Settings-page header card: GitHub-style token activity dots (2026-10-22).
+// Three views — daily / weekly / cumulative — colored by quantile buckets,
+// following the GPT "Token activity" design: round dots, month axis below the
+// grid, no legend. Data comes from /usage-heatmap (read-only ledger
+// aggregation across this install's profiles); a failed load shows an
+// explicit unavailable line (fail-visible, never silently blank).
+
+const TOKEN_ACTIVITY_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const TOKEN_ACTIVITY_DOT_PX = 12
+const TOKEN_ACTIVITY_GAP_PX = 5
+// Cap: 53 columns of dots with HORIZONTAL gaps equal to the vertical gap.
+// Beyond this width the grid stops stretching (no gappy dots on wide windows).
+const TOKEN_ACTIVITY_GRID_MAX_PX = 53 * TOKEN_ACTIVITY_DOT_PX + 52 * TOKEN_ACTIVITY_GAP_PX
+const TOKEN_ACTIVITY_LEVELS = {
+  light: ['#dbeafe', '#bfdbfe', '#93c5fd', '#3b82f6', '#1d4ed8'],
+  dark: ['#1d3557', '#1f4e79', '#2d6fb4', '#4d9be6', '#8ec9f5'],
+}
+
+function tokenActivityEmptyColor(scheme) {
+  // GPT reference design: idle days show a SOLID grey dot so the grid outline
+  // stays complete (dark ~#333 on black); translucent strokes read as "no dot".
+  return scheme === 'dark' ? '#33383e' : '#e4e7eb'
+}
+
+function localDateKey(date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function offsetDate(date, days) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function mondayOf(date) {
+  return offsetDate(date, -((date.getDay() + 6) % 7))
+}
+
+function tokenActivityFormat(n) {
+  if (typeof n !== 'number' || !isFinite(n)) return '—'
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
+  return String(n)
+}
+
+// Quantile buckets over the non-zero values; sparse ledgers fall back to
+// fractions of the max so a handful of days still produces five levels.
+function quantileThresholds(values) {
+  const positive = values.filter(v => typeof v === 'number' && v > 0).sort((a, b) => a - b)
+  if (positive.length < 4) {
+    const max = positive.length ? positive[positive.length - 1] : 1
+    return [0.25, 0.5, 0.75, 1].map(f => Math.max(1, Math.round(max * f)))
+  }
+  const pick = f => positive[Math.min(positive.length - 1, Math.floor(f * positive.length))]
+  return [pick(0.25), pick(0.5), pick(0.75), pick(0.92)]
+}
+
+function levelFor(value, thresholds) {
+  if (!(typeof value === 'number' && value > 0)) return 0
+  let level = 1
+  for (let i = 0; i < thresholds.length; i++) {
+    if (value > thresholds[i]) level = i + 2
+  }
+  return Math.min(level, 5)
+}
+
+// Fixed one-year window (GPT reference layout): the grid always spans 53
+// week-columns ending at the last ledger day (aligned to Sunday), one dot per
+// day — days with no ledger record are solid grey placeholders so the outline
+// stays complete, exactly like the reference image.
+function padCalendarDays(days) {
+  if (!Array.isArray(days) || days.length === 0) return []
+  const byKey = new Map(days.map(day => [day.d, day]))
+  const last = new Date(days[days.length - 1].d + 'T00:00')
+  const lastSunday = offsetDate(last, (7 - last.getDay()) % 7)
+  const firstMonday = offsetDate(lastSunday, -(53 * 7 - 1))
+  const out = []
+  for (let cur = new Date(firstMonday); cur <= lastSunday; cur = offsetDate(cur, 1)) {
+    const key = localDateKey(cur)
+    const found = byKey.get(key)
+    out.push(found ? { ...found, d: key } : { d: key, t: 0 })
+  }
+  return out
+}
+
+// One value per week (Monday-aligned key), in chronological order.
+function weeklyAggregate(days) {
+  const weeks = []
+  let current = null
+  for (const day of Array.isArray(days) ? days : []) {
+    const key = localDateKey(mondayOf(new Date(day.d + 'T00:00')))
+    if (!current || current.w !== key) {
+      current = { w: key, t: 0 }
+      weeks.push(current)
+    }
+    current.t += day.t || 0
+  }
+  return weeks
+}
+
+// Running total in chronological order; each entry keeps its own day value.
+function cumulativeSeries(days) {
+  let acc = 0
+  return (Array.isArray(days) ? days : []).map(day => {
+    acc += day.t || 0
+    return { ...day, c: acc }
+  })
+}
+
+function tokenActivityTopProviders(day, limit = Infinity) {
+  if (!day || !day.p) return []
+  return Object.entries(day.p)
+    .map(([label, v]) => ({ label, tokens: (v.in || 0) + (v.out || 0) + (v.cache || 0) }))
+    .filter(entry => entry.tokens > 0)
+    .sort((a, b) => b.tokens - a.tokens)
+    .slice(0, limit)
+}
+
+// Height-encoding for the weekly / cumulative views (GPT reference): each
+// column stacks lit rows from the BOTTOM (a bar chart of 7-dot resolution);
+// the lit rows share one saturated blue and the un-lit rows stay grey.
+function litRows(value, maxValue) {
+  if (!(value > 0) || !(maxValue > 0)) return 0
+  return Math.min(7, Math.max(1, Math.ceil((value / maxValue) * 7)))
+}
+
+// Standalone stats region (2026-10-22, Neal): the five summary numbers live
+// in their OWN card above the Token activity heatmap card, not inside it.
+function TokenActivityStats({ rest }) {
+  const locale = useLocale()
+  const scheme = useColorScheme()
+  const [data, setData] = useState(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const payload = await rest('/usage-heatmap')
+        if (!alive) return
+        setData(payload)
+        setFailed(false)
+      } catch {
+        if (alive) setFailed(true)
+      }
+    }
+    void load()
+    window.addEventListener('subscription-meter:data-updated', load)
+    return () => {
+      alive = false
+      window.removeEventListener('subscription-meter:data-updated', load)
+    }
+  }, [rest])
+  const total = data ? data.total || 0 : 0
+  const activeDays = data ? data.activeDays || 0 : 0
+  const peakDay = data && data.days ? data.days.reduce((max, day) => Math.max(max, day.t || 0), 0) : 0
+  const dailyAverage = activeDays > 0 ? Math.round(total / activeDays) : 0
+  const statCell = (value, label, testId) => jsxs('div', {
+    className: 'min-w-0 flex-1 px-3 py-2.5',
+    'data-stat': testId,
+    children: [
+      jsx('div', { className: 'truncate text-base font-semibold text-foreground', children: value }),
+      jsx('div', { className: 'truncate text-[0.6rem] text-(--ui-text-tertiary)', children: label })
+    ]
+  }, label)
+  const ready = Boolean(data)
+  return jsxs('div', {
+    className: 'sm-part',
+    'data-token-activity': 'stats-card',
+    children: [
+      jsxs('div', {
+        className: 'flex items-stretch divide-x divide-(--ui-stroke-secondary) rounded-md',
+        style: { backgroundColor: scheme === 'dark' ? '#1c2127' : '#f6f7f9' },
+        'data-token-activity': 'stats',
+        children: [
+          statCell(ready ? tokenActivityFormat(total) : '—', textOr(locale, 'totalTokens', 'Total tokens'), 'total'),
+          statCell(ready ? tokenActivityFormat(peakDay) : '—', textOr(locale, 'peakDay', 'Peak day'), 'peak'),
+          // Top model is a permanent cell (Neal 2026-10-22); the MODEL NAME is
+          // the big value, the token count sits in the small label (swapped).
+          statCell(
+            ready && data.topModel && data.topModel.model ? data.topModel.model : '—',
+            ready && data.topModel && data.topModel.tokens > 0
+              ? `${textOr(locale, 'topModel', 'Top model')} · ${tokenActivityFormat(data.topModel.tokens)}`
+              : textOr(locale, 'topModel', 'Top model'),
+            'top-model',
+          ),
+          statCell(ready ? tokenActivityFormat(dailyAverage) : '—', textOr(locale, 'dailyAverage', 'Daily average'), 'daily-average'),
+          statCell(ready ? String(activeDays) : '—', textOr(locale, 'activeDays', 'Active days'), 'active-days'),
+        ]
+      }),
+      failed ? jsx('p', {
+        className: 'mt-2 text-[0.65rem] text-(--ui-text-tertiary)',
+        children: textOr(locale, 'statsUnavailable', 'Token stats unavailable — the backend did not respond. Try reopening settings.')
+      }) : null
+    ]
+  })
+}
+
+function TokenActivityCard({ rest }) {
+  const locale = useLocale()
+  const scheme = useColorScheme()
+  const [data, setData] = useState(null)
+  const [failed, setFailed] = useState(false)
+  const [view, setView] = useState('daily')
+  const [tip, setTip] = useState(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const payload = await rest('/usage-heatmap')
+        if (!alive) return
+        setData(payload && Array.isArray(payload.days) ? payload : { days: [] })
+        setFailed(false)
+      } catch {
+        if (alive) setFailed(true)
+      }
+    }
+    void load()
+    window.addEventListener('subscription-meter:data-updated', load)
+    return () => {
+      alive = false
+      window.removeEventListener('subscription-meter:data-updated', load)
+    }
+  }, [rest])
+
+  const showTip = (event, title, lines) => {
+    setTip({ title, lines, x: event.clientX, y: event.clientY })
+  }
+  const hideTip = () => setTip(null)
+
+  const days = data ? padCalendarDays(data.days) : []
+  const dailyThresholds = quantileThresholds(days.map(day => day.t || 0))
+  // Weekly view: totals per Monday-aligned column over the real ledger days.
+  const weekTotals = new Map(weeklyAggregate(data ? data.days : []).map(w => [w.w, w.t]))
+  const maxWeekTotal = weekTotals.size ? Math.max(...weekTotals.values()) : 0
+  // Cumulative view: running total at the END of each grid column.
+  const colCumulative = []
+  let running = 0
+  days.forEach((day, index) => {
+    running += day.t || 0
+    if (index % 7 === 6) colCumulative.push(running)
+  })
+  const finalTotal = running
+  const palette = TOKEN_ACTIVITY_LEVELS[scheme === 'dark' ? 'dark' : 'light']
+  const emptyColor = tokenActivityEmptyColor(scheme)
+  const total = data ? data.total || 0 : 0
+  const activeDays = data ? data.activeDays || 0 : 0
+  const firstLedger = data ? data.firstLedger : null
+
+  const cellColor = level => (level > 0 ? palette[level - 1] : emptyColor)
+
+  const tipForCell = (dateKey, value, providerLines) => ({
+    title: `${dateKey} · ${tokenActivityFormat(value)} tok`,
+    lines: providerLines || [],
+  })
+
+  const cells = []
+  const monthTicks = []
+  let lastMonth = -1
+  days.forEach((day, index) => {
+    const col = Math.floor(index / 7)
+    const row = index % 7 // 0 = top row, 6 = bottom row
+    const mondayKey = localDateKey(offsetDate(new Date(days[0].d + 'T00:00'), col * 7))
+    let level = 0
+    let tip
+    if (view === 'daily') {
+      // Each dot shades its own day (quantile buckets, dark = low, bright = high).
+      level = levelFor(day.t || 0, dailyThresholds)
+      const top = day.t > 0
+        ? tokenActivityTopProviders(day).map(p => `${p.label} · ${tokenActivityFormat(p.tokens)}`)
+        : []
+      tip = tipForCell(day.d, day.t || 0, top)
+    } else if (view === 'weekly') {
+      // Bar-chart encoding: lit rows stack from the BOTTOM, height = that
+      // week's share of the busiest week; lit rows share one saturated blue.
+      const weekTotal = weekTotals.get(mondayKey) || 0
+      const lit = litRows(weekTotal, maxWeekTotal)
+      level = row >= 7 - lit ? 4 : 0
+      tip = { title: `Week of ${mondayKey}`, lines: [`${tokenActivityFormat(weekTotal)} tok`] }
+    } else {
+      // Cumulative staircase: lit rows grow with the running total through
+      // each column's end, saturating at a full 7-row column.
+      const cum = colCumulative[col] || 0
+      const lit = litRows(cum, finalTotal)
+      level = row >= 7 - lit ? 4 : 0
+      tip = { title: `Cumulative through week of ${mondayKey}`, lines: [`${tokenActivityFormat(cum)} tok`] }
+    }
+    cells.push(jsx('div', {
+      key: day.d,
+      style: {
+        width: `${TOKEN_ACTIVITY_DOT_PX}px`, height: `${TOKEN_ACTIVITY_DOT_PX}px`,
+        borderRadius: '50%', backgroundColor: cellColor(level),
+        justifySelf: 'center',
+      },
+      onMouseEnter: e => showTip(e, tip.title, tip.lines),
+      onMouseLeave: hideTip,
+    }))
+    if (row === 0) {
+      const month = new Date(day.d + 'T00:00').getMonth()
+      if (month !== lastMonth) { lastMonth = month; monthTicks.push([col, TOKEN_ACTIVITY_MONTHS[month] || '']) }
+    }
+  })
+
+  const tabs = [
+    { id: 'daily', label: textOr(locale, 'daily', 'Daily') },
+    { id: 'weekly', label: textOr(locale, 'weekly', 'Weekly') },
+    { id: 'cumulative', label: textOr(locale, 'cumulative', 'Cumulative') },
+  ]
+
+  // Summary strip (Neal's final five, 2026-10-22): total / peak day /
+  // top model / daily average / active days. Solid panel background so the
+  // numbers never sit on transparent ground; cells split by hairlines.
+  // Daily average = total ÷ active days (usage-day basis).
+  // (activeDays/total are the outer-scope values also used by the subtitle.)
+  // Summary-strip cells and the five-cell strip moved out into the standalone
+  // TokenActivityStats card (2026-10-22): stats live in their OWN region
+  // above the heatmap card, per Neal.
+
+  return jsxs('div', {
+    className: 'sm-part',
+    'data-token-activity': 'card',
+    children: [
+      jsxs('div', {
+        className: 'mb-2 flex items-center justify-between gap-3',
+        style: { maxWidth: `${TOKEN_ACTIVITY_GRID_MAX_PX}px` },
+        children: [
+          jsxs('div', {
+            children: [
+              jsx('h3', { className: 'text-sm font-medium text-foreground', children: textOr(locale, 'tokenActivity', 'Token activity') }),
+              jsx('p', {
+                className: 'mt-0.5 text-[0.65rem] text-(--ui-text-tertiary)',
+                children: data && !failed
+                  ? t(locale, 'activitySummary')
+                    .replace('{total}', tokenActivityFormat(total))
+                    .replace('{days}', String(activeDays))
+                    .replace('{since}', firstLedger ? t(locale, 'activitySince').replace('{date}', firstLedger) : '')
+                  : textOr(locale, 'activityEmpty', 'Per-day token usage across this install’s profiles (read-only).')
+              })
+            ]
+          }),
+          jsxs('div', {
+            className: 'flex items-center gap-2 text-xs',
+            role: 'tablist',
+            'aria-label': 'Token activity view',
+            children: tabs.map(tab => jsx('button', {
+              type: 'button',
+              role: 'tab',
+              'aria-selected': view === tab.id,
+              'data-view': tab.id,
+              disabled: failed,
+              className: view === tab.id
+                ? 'font-medium text-foreground'
+                : 'text-(--ui-text-tertiary) hover:text-(--ui-text-secondary)',
+              onClick: () => setView(tab.id),
+              children: tab.label
+            }, tab.id))
+          })
+        ]
+      }),
+      failed
+        ? jsx('p', { className: 'text-xs text-(--ui-text-secondary)', children: textOr(locale, 'activityUnavailable', 'Token activity unavailable — the backend did not respond. Try reopening settings.') })
+        : (!data
+            ? jsx('p', { className: 'text-xs text-(--ui-text-tertiary)', children: textOr(locale, 'activityLoading', 'Loading token activity…') })
+            : (days.length === 0
+                ? jsx('p', { className: 'text-xs text-(--ui-text-tertiary)', children: textOr(locale, 'activityNone', 'No token activity recorded yet.') })
+                : jsxs('div', {
+                    className: 'overflow-x-auto pb-1',
+                    children: [
+                      jsx('div', {
+                        style: {
+                          display: 'grid',
+                          gridTemplateRows: `repeat(7, ${TOKEN_ACTIVITY_DOT_PX}px)`,
+                          gridAutoFlow: 'column',
+                          gridAutoColumns: '1fr',
+                          gap: `${TOKEN_ACTIVITY_GAP_PX}px`,
+                          width: '100%',
+                          maxWidth: `${TOKEN_ACTIVITY_GRID_MAX_PX}px`,
+                          alignItems: 'center',
+                        },
+                        'data-token-activity': 'grid',
+                        children: cells
+                      }),
+                      jsx('div', {
+                        className: 'relative mt-1 h-4',
+                        style: { maxWidth: `${TOKEN_ACTIVITY_GRID_MAX_PX}px` },
+                        children: monthTicks.map(([col, label]) => jsx('span', {
+                          style: {
+                            position: 'absolute',
+                            left: `${(col / 53) * 100}%`,
+                          },
+                          className: 'text-[0.6rem] text-(--ui-text-quaternary)',
+                          children: label
+                        }, `${label}-${col}`))
+                      })
+                    ]
+                  }))),
+      tip ? jsx('div', {
+        style: {
+          position: 'fixed', left: `${Math.min(tip.x + 12, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 240)}px`,
+          top: `${tip.y + 14}px`, zIndex: 50, pointerEvents: 'none', padding: '2px 8px',
+          backgroundColor: scheme === 'dark' ? '#1f2630' : '#ffffff',
+        },
+        className: 'rounded border border-(--ui-stroke-secondary) text-[0.65rem] text-foreground',
+        children: [
+          jsx('div', { className: 'font-medium', children: tip.title }),
+          ...tip.lines.map((line, index) => jsx('div', {
+            className: 'text-(--ui-text-secondary)',
+            children: line
+          }, `${line}-${index}`))
+        ]
+      }) : null
+    ]
+  })
+}
+// <<< token-activity <<<
+
 function ProviderSettingsPanel(props) {
   // 沙箱安全桥（2026-10-09 晚）：provider-settings-ui / row-min-height 的测试沙箱
   // 裸调本函数且不注入 useValue/host——函数体里直接放促销 hook 必炸。所以 hook
@@ -1872,13 +2577,42 @@ function ProviderSettingsPanelWithSaleTicker(props) {
   return ProviderSettingsPanelBody({ ...props, saleTickerMap, setSaleTickerPlatform, saleSlugs })
 }
 
+const SETTINGS_ATTENTION = new Set(['auth_error', 'request_error', 'unrecognized', 'no_fetcher', 'unconfigured', 'partial'])
+const SETTINGS_SHELL_CSS = '.sm-panel{border:1px solid var(--ui-stroke-secondary);border-radius:10px;flex:none}.sm-part{padding:12px 14px}.sm-part+.sm-part{border-top:1px solid var(--ui-stroke-secondary)}.sm-provider-grid{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}.sm-provider-grid>.sm-shell{flex:1 1 calc(33.333% - 8px);max-width:100%;min-width:min(100%,max-content)}.sm-provider-grid>.sm-shell[open]{flex-basis:100%}.sm-name{flex:none;white-space:nowrap}.sm-status{max-width:8.5rem}.sm-shell{border:1px solid currentColor;border-radius:999px;background:transparent}.sm-shell[open]{border-radius:18px}.sm-shell>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:0 14px 0 12px;cursor:pointer;list-style:none}.sm-shell>summary::-webkit-details-marker{display:none}.sm-shell .sm-chev{display:inline-block;width:12px;font-size:10px;flex:none}.sm-shell[open]>summary .sm-chev{transform:rotate(90deg)}.sm-shell-body{margin:0 14px 10px 30px;padding-top:8px;border-top:1px solid var(--ui-stroke-secondary);display:flex;flex-direction:column;gap:6px}.sm-shell-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px;padding:0 14px 0 12px}'
+
+function settingsProviderRank(provider) {
+  if (!provider || provider.enabled === false || provider.status === 'disabled') return 2
+  if (SETTINGS_ATTENTION.has(provider.status)) return 0
+  return 1
+}
+
+function orderProvidersForSettings(providers) {
+  return (Array.isArray(providers) ? providers : [])
+    .map((provider, index) => ({ provider, index }))
+    .sort((a, b) => settingsProviderRank(a.provider) - settingsProviderRank(b.provider) || a.index - b.index)
+    .map(item => item.provider)
+}
+
+function settingsStatusClass(status) {
+  if (status === 'auth_error' || status === 'request_error') return 'sm-status min-w-0 truncate text-xs font-medium text-(--ui-danger)'
+  if (SETTINGS_ATTENTION.has(status)) return 'sm-status min-w-0 truncate text-xs font-medium text-foreground'
+  return 'sm-status min-w-0 truncate text-xs text-(--ui-text-secondary)'
+}
+
+function stopSummaryToggle(event) {
+  event.preventDefault()
+  event.stopPropagation()
+}
+
 function ProviderSettingsPanelBody({ rest, saleTickerMap = {}, setSaleTickerPlatform = () => {}, saleSlugs = {} }) {
 
+  const locale = useLocale()
   const [providers, setProviders] = useState([])
   const [state, setState] = useState('loading')
   const [savingId, setSavingId] = useState(null)
   const savePending = useRef(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -1911,10 +2645,11 @@ function ProviderSettingsPanelBody({ rest, saleTickerMap = {}, setSaleTickerPlat
       })
       setProviders(Array.isArray(payload?.providers) ? payload.providers : [])
       setState('ready')
+      setSaveError('')
       notifySettingsChanged()
     } catch {
       // Fixed safe message only: the raw exception may embed secrets/URLs.
-      setState('error')
+      setSaveError(t(locale, 'saveFailed'))
       host.notify({
         kind: 'error',
         message: `Failed to save display settings for ${providerId}. [redacted]`
@@ -1936,9 +2671,10 @@ function ProviderSettingsPanelBody({ rest, saleTickerMap = {}, setSaleTickerPlat
       })
       setProviders(Array.isArray(payload?.providers) ? payload.providers : [])
       setState('ready')
+      setSaveError('')
       notifySettingsChanged()
     } catch {
-      setState('error')
+      setSaveError(t(locale, 'saveFailed'))
       host.notify({
         kind: 'error',
         message: `Failed to save display settings for ${providerId}. [redacted]`
@@ -1958,6 +2694,7 @@ function ProviderSettingsPanelBody({ rest, saleTickerMap = {}, setSaleTickerPlat
       const payload = await rest('/settings')
       setProviders(Array.isArray(payload?.providers) ? payload.providers : [])
       setState('ready')
+      setSaveError('')
       notifySettingsChanged()
     } catch {
       setState('error')
@@ -1968,106 +2705,129 @@ function ProviderSettingsPanelBody({ rest, saleTickerMap = {}, setSaleTickerPlat
     }
   }
 
+  const orderedProviders = orderProvidersForSettings(providers)
+  const attentionCount = orderedProviders.filter(provider => SETTINGS_ATTENTION.has(provider.status)).length
+  const summaryText = state === 'loading'
+    ? t(locale, 'checking')
+    : t(locale, 'needAttention').replace('{count}', String(attentionCount)).replace('{total}', String(orderedProviders.length))
+
   return jsxs('section', {
-    className: 'rounded-md border border-(--ui-stroke-secondary) p-3',
+    className: 'sm-panel shrink-0',
     children: [
+      jsx('style', { children: SETTINGS_SHELL_CSS }),
+      // Settings-page header slot (2026-10-22): token stats, then the heatmap.
+      // The heatmap stays open. Provider rows sit below it.
+      jsx(TokenActivityStats, { rest }),
+      jsx(TokenActivityCard, { rest }),
+      // settings-provider-list
       jsxs('div', {
-        className: 'mb-3 flex items-start justify-between gap-3',
+        className: 'sm-part',
         children: [
-          jsxs('div', {
-            children: [
-              jsx('h2', {
-                className: 'text-sm font-medium text-foreground',
-                children: 'Connection & display'
-              }),
-              jsx('p', {
-                className: 'mt-1 text-xs text-(--ui-text-tertiary)',
-                children: 'Switches control display and fetching; connection status reflects the last check and does not mean the credential stays valid. Keys are never stored on this page.'
-              })
-            ]
+      jsxs('div', {
+        className: 'flex items-center justify-between gap-3',
+        children: [
+          jsx('p', {
+            className: 'text-xs text-foreground',
+            children: summaryText
           }),
           jsx('button', {
             type: 'button', 'aria-label': 'Refresh connection status',
             disabled: state === 'loading' || savingId !== null || refreshing,
-            className: 'rounded border border-(--ui-stroke-secondary) px-2 py-1 text-xs',
+            className: 'shrink-0 rounded-full border border-(--ui-stroke-secondary) px-2.5 py-0.5 text-[0.65rem] text-(--ui-text-secondary)',
             onClick: () => void refreshStatus(),
-            children: refreshing ? 'Checking…' : 'Refresh connection status'
-          }),
-          state === 'error'
-            ? jsx('span', {
-                className: 'text-xs text-(--ui-danger)',
-                children: 'Action failed — click refresh to retry'
-              })
-            : null
+            children: t(locale, 'refresh')
+          })
         ]
       }),
+      state === 'error'
+        ? jsx('p', {
+            className: 'mt-1 text-xs text-(--ui-danger)',
+            children: t(locale, 'refreshFailed')
+          })
+        : null,
+      saveError
+        ? jsx('p', {
+            className: 'mt-1 text-xs text-(--ui-danger)',
+            children: saveError
+          })
+        : null,
+      jsx('p', {
+        className: 'mt-1 text-[0.65rem] text-(--ui-text-tertiary)',
+        children: t(locale, 'keys')
+      }),
       jsx('div', {
-        className: 'grid gap-2 sm:grid-cols-2 lg:grid-cols-3',
-        children: providers.map(provider =>
-          jsxs('div', {
-            className: 'flex items-center justify-between gap-3 rounded border border-(--ui-stroke-secondary) px-3 py-2',
+        className: 'sm-provider-grid mt-2',
+        children: orderedProviders.map(provider =>
+          jsxs('details', {
+            className: 'sm-shell text-foreground',
             children: [
-              jsxs('span', {
-                className: 'min-w-0',
+              jsxs('summary', {
                 children: [
-                  jsx('span', {
-                    className: 'block truncate text-xs font-medium text-foreground',
-                    children: provider.label
-                  }),
-                  jsx('span', {
-                    className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
-                    children: provider.kind === 'balance' ? 'Account balance' : 'Subscription quota · 84 cells'
-                  }),
-                  jsx('span', {
-                    className: 'block text-xs text-(--ui-text-secondary)',
-                    'data-connection-status': provider.status || 'unknown',
-                    children: CONNECTION_LABELS[provider.status] || CONNECTION_LABELS.unknown
-                  }),
-                  // 2026-10-03 Neal 定：这家要填什么凭据、补哪一把能多看什么，直接在设置页
-                  // 摆出来（不再只活在折叠的提示里）。文案由后端拼好下发——前端不认供应商名。
-                  provider.credentials && provider.credentials.requires
-                    ? jsx('span', {
-                        className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
-                        'data-credentials': 'requires',
-                        children: `Needs: ${provider.credentials.requires}`
-                      })
-                    : null,
-                  provider.credentials && provider.credentials.optional
-                    ? jsx('span', {
-                        className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
-                        'data-credentials': 'optional',
-                        children: `Optional: ${provider.credentials.optional}`
-                      })
-                    : null,
-                  provider.checkedAt ? jsx('span', {
-                    className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
-                    children: `Last checked: ${new Date(provider.checkedAt * 1000).toLocaleString()}`
-                  }) : null,
-                  jsxs('details', {
-                    className: 'mt-1 text-xs text-(--ui-text-secondary)',
+                  jsxs('span', {
+                    className: 'flex items-center gap-2',
                     children: [
-                      jsx('summary', { children: 'Setup & access' }),
-                      jsx('p', { className: 'mt-1 whitespace-normal', children: provider.actionHint || 'Configure an account for the current profile, then refresh; auth status has not been checked yet.' })
+                      jsx('span', { className: 'sm-chev', 'aria-hidden': true, children: '▶' }),
+                      jsx('span', { className: 'sm-name text-sm font-medium', children: provider.label })
+                    ]
+                  }),
+                  jsxs('span', {
+                    className: 'flex min-w-0 items-center gap-2',
+                    children: [
+                      jsx('span', {
+                        className: settingsStatusClass(provider.status),
+                        'data-connection-status': provider.status || 'unknown',
+                        children: connectionLabel(locale, provider.status)
+                      }),
+                      jsx('span', {
+                        onMouseDown: stopSummaryToggle,
+                        onClick: stopSummaryToggle,
+                        children: jsx(Switch, {
+                          checked: provider.enabled !== false,
+                          disabled: state === 'loading' || savingId !== null || refreshing,
+                          'aria-label': `Show ${provider.label} in the subscription quota window`,
+                          onCheckedChange: checked => void toggle(provider.id, checked)
+                        })
+                      })
                     ]
                   })
                 ]
               }),
-              jsxs('span', {
-                className: 'flex shrink-0 flex-col items-end gap-1',
+              jsxs('div', {
+                className: 'sm-shell-body',
                 children: [
-                  jsx(Switch, {
-                    checked: provider.enabled !== false,
-                    disabled: state === 'loading' || savingId !== null || refreshing,
-                    'aria-label': `Show ${provider.label} in the subscription quota window`,
-                    onCheckedChange: checked => void toggle(provider.id, checked)
+                  jsx('span', {
+                    className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
+                    children: provider.kind === 'balance' ? t(locale, 'balanceKind') : t(locale, 'quotaKind')
                   }),
+                  provider.credentials && provider.credentials.requires
+                    ? jsx('span', {
+                        className: 'block text-[0.65rem] text-(--ui-text-secondary)',
+                        'data-credentials': 'requires',
+                        children: `${t(locale, 'needs')}: ${provider.credentials.requires}`
+                      })
+                    : null,
+                  provider.credentials && provider.credentials.optional
+                    ? jsx('span', {
+                        className: 'block text-[0.65rem] text-(--ui-text-secondary)',
+                        'data-credentials': 'optional',
+                        children: `${t(locale, 'optional')}: ${provider.credentials.optional}`
+                      })
+                    : null,
+                  jsx('p', {
+                    className: 'text-xs text-(--ui-text-secondary)',
+                    children: provider.actionHint || 'Configure an account for the current profile, then refresh; auth status has not been checked yet.'
+                  }),
+                  provider.checkedAt ? jsx('span', {
+                    className: 'block text-[0.65rem] text-(--ui-text-quaternary)',
+                    children: `${t(locale, 'lastChecked')}: ${new Date(provider.checkedAt * 1000).toLocaleString()}`
+                  }) : null,
                   provider.hasMonthly
                     ? jsxs('label', {
                         className: 'flex items-center gap-1',
                         children: [
                           jsx('span', {
                             className: 'text-[0.6rem] text-(--ui-text-tertiary)',
-                            children: 'Show monthly quota'
+                            children: locale === 'en' ? 'Show monthly quota' : t(locale, 'monthly')
                           }),
                           jsx(Switch, {
                             checked: provider.monthlyEnabled === true,
@@ -2078,14 +2838,13 @@ function ProviderSettingsPanelBody({ rest, saleTickerMap = {}, setSaleTickerPlat
                         ]
                       })
                     : null,
-                  // 促销跑马灯（第三枚小开关）：只给有定价数据的平台；关掉=跑马灯里摘掉这家。
                   saleSlugs[provider.id]
                     ? jsxs('label', {
                         className: 'flex items-center gap-1',
                         children: [
                           jsx('span', {
                             className: 'text-[0.6rem] text-(--ui-text-tertiary)',
-                            children: 'Sale ticker'
+                            children: locale === 'en' ? 'Sale ticker' : t(locale, 'sale')
                           }),
                           jsx(Switch, {
                             checked: saleTickerMap[provider.id] !== false,
@@ -2101,12 +2860,13 @@ function ProviderSettingsPanelBody({ rest, saleTickerMap = {}, setSaleTickerPlat
           }, provider.id)
         )
       }),
-      jsx(DisplaySettingsSection, {}),
-      jsx(UsageHelpSection, {})
+        ]
+      }),
+      jsx(UsageHelpSection, {}),
+      jsx(DisplaySettingsSection, {})
     ]
   })
 }
-
 
 function SubscriptionMeterBody({ rest }) {
   const [rows, setRows] = useState([])

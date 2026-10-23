@@ -26,6 +26,7 @@ import hashlib
 import hmac
 import json
 import os
+import sqlite3
 import subprocess
 import time
 import urllib.parse
@@ -2308,3 +2309,183 @@ async def data(refresh: bool = False) -> dict:
 @router.get("/health")
 async def health() -> dict:
     return {"ok": True}
+
+
+# >>> token-activity >>>
+# Token activity heatmap (settings page header, 2026-10-22).
+# Aggregate per-day token usage from every local state.db under this Hermes
+# install root (current profile + sibling named profiles). Read-only: every
+# database is opened with mode=ro, so the endpoint can never write a ledger.
+# No message content ever leaves the machine — only day/provider/token totals.
+
+_HEATMAP_PROVIDER_LABELS = {
+    "openai-codex": "Codex",
+    "openai": "OpenAI",
+    "deepseek": "DeepSeek",
+    "kimi-coding": "Kimi",
+    "kimi": "Kimi",
+    "zai": "GLM (Z.AI)",
+    "minimax-cn": "MiniMax",
+    "minimax": "MiniMax",
+    "xai-oauth": "Grok (xAI)",
+    "xai": "Grok (xAI)",
+    "nous": "Nous Portal",
+    "openrouter": "OpenRouter",
+    "xiaomi": "Xiaomi MiMo",
+    "alibaba-cn": "Qwen (Ali)",
+    "gemini": "Gemini",
+    "tencent-tokenhub": "Tencent",
+    "copilot-acp": "Copilot",
+    "anthropic": "Anthropic",
+}
+_HEATMAP_LOCAL_LABEL = "Local / custom"
+_HEATMAP_TTL_SECONDS = 120.0
+_heatmap_cache: dict[str, Any] = {"at": 0.0, "payload": None}
+
+
+def _heatmap_install_root(home: Path) -> Path:
+    """The shared install root for the current profile home.
+
+    A home directly under a ``profiles`` directory is a named profile and
+    shares its parent (the install root) with every sibling; any other home
+    (e.g. ``~/.hermes``) is the default profile and is its own root.
+    """
+    resolved = home.resolve()
+    if resolved.parent.name == "profiles":
+        return resolved.parent.parent
+    return resolved
+
+
+def _heatmap_db_paths(home: Optional[Path] = None) -> list[Path]:
+    current = Path(home) if home else get_hermes_home()
+    root = _heatmap_install_root(current)
+    paths: list[Path] = []
+    if (current / "state.db").is_file():
+        paths.append(current / "state.db")
+    profiles_dir = root / "profiles"
+    if profiles_dir.is_dir():
+        for child in sorted(profiles_dir.iterdir()):
+            candidate = child / "state.db"
+            if candidate.is_file() and candidate not in paths:
+                paths.append(candidate)
+    # The default profile's ledger when running inside a named profile.
+    default_db = root / "state.db"
+    if default_db.is_file() and default_db not in paths:
+        paths.append(default_db)
+    return paths
+
+
+def _heatmap_provider_label(raw: Optional[str]) -> str:
+    if not raw:
+        return _HEATMAP_LOCAL_LABEL
+    return _HEATMAP_PROVIDER_LABELS.get(str(raw), _HEATMAP_LOCAL_LABEL if str(raw).startswith(("custom", "qwen", "gemma", "llamacpp", "ollama")) else str(raw))
+
+
+def _top_model(home: Optional[Path] = None) -> Optional[dict]:
+    """The single model with the most tokens across every local ledger."""
+    best_model, best_tokens = None, 0
+    for db_path in _heatmap_db_paths(home):
+        try:
+            db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                for model, tokens in db.execute(
+                    "SELECT model, SUM(input_tokens+output_tokens+cache_read_tokens+cache_write_tokens) "
+                    "FROM session_model_usage WHERE model IS NOT NULL AND model != '' "
+                    "GROUP BY model"
+                ):
+                    if tokens and int(tokens) > best_tokens:
+                        best_model, best_tokens = str(model), int(tokens)
+            finally:
+                db.close()
+        except Exception:
+            continue
+    return {"model": best_model, "tokens": best_tokens} if best_model else None
+
+
+def _build_usage_heatmap(home: Optional[Path] = None) -> dict:
+    days: dict[str, dict[str, list[int]]] = {}
+    sources: list[dict[str, Any]] = []
+    for db_path in _heatmap_db_paths(home):
+        source_rows = 0
+        try:
+            db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                cursor = db.execute(
+                    "SELECT first_seen, billing_provider, input_tokens, output_tokens, "
+                    "cache_read_tokens, cache_write_tokens FROM session_model_usage"
+                )
+                for ts, raw_provider, in_tok, out_tok, cr_tok, cw_tok in cursor:
+                    label = _heatmap_provider_label(raw_provider)
+                    day = datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d")
+                    bucket = days.setdefault(day, {})
+                    agg = bucket.setdefault(label, [0, 0, 0])
+                    agg[0] += int(in_tok or 0)
+                    agg[1] += int(out_tok or 0)
+                    agg[2] += int(cr_tok or 0) + int(cw_tok or 0)
+                    source_rows += 1
+            finally:
+                db.close()
+        except Exception:
+            # A missing/corrupt side ledger must never break the endpoint;
+            # it simply contributes nothing (recorded as a skipped source).
+            sources.append({"path": str(db_path), "rows": 0, "ok": False})
+            continue
+        sources.append({"path": str(db_path), "rows": source_rows, "ok": True})
+
+    day_list: list[dict[str, Any]] = []
+    total = 0
+    active_days = 0
+    per_provider: dict[str, list[int]] = {}
+    for day in sorted(days):
+        providers = days[day]
+        day_total = 0
+        for label, (in_tok, out_tok, cache_tok) in providers.items():
+            day_total += in_tok + out_tok + cache_tok
+            acc = per_provider.setdefault(label, [0, 0, 0])
+            acc[0] += in_tok
+            acc[1] += out_tok
+            acc[2] += cache_tok
+        total += day_total
+        if day_total > 0:
+            active_days += 1
+        day_list.append({
+            "d": day,
+            "t": day_total,
+            "p": {label: {"in": v[0], "out": v[1], "cache": v[2]} for label, v in providers.items()},
+        })
+
+    rank = sorted(
+        (
+            {"provider": label, "tokens": v[0] + v[1] + v[2], "in": v[0], "out": v[1], "cache": v[2]}
+            for label, v in per_provider.items()
+        ),
+        key=lambda item: -item["tokens"],
+    )
+    return {
+        "days": day_list,
+        "total": total,
+        "activeDays": active_days,
+        "firstLedger": day_list[0]["d"] if day_list else None,
+        "lastLedger": day_list[-1]["d"] if day_list else None,
+        "rank": rank,
+        "sources": sources,
+        "topModel": _top_model(home),
+        "generatedAt": time.time(),
+    }
+
+
+async def usage_heatmap(refresh: bool = False) -> dict:
+    now = time.time()
+    if not refresh and _heatmap_cache["payload"] is not None and now - _heatmap_cache["at"] < _HEATMAP_TTL_SECONDS:
+        return _heatmap_cache["payload"]
+    payload = await run_in_threadpool(_build_usage_heatmap)
+    _heatmap_cache["at"] = now
+    _heatmap_cache["payload"] = payload
+    return payload
+
+
+@router.get("/usage-heatmap")
+async def usage_heatmap_endpoint(refresh: bool = False) -> dict:
+    return await usage_heatmap(refresh=refresh)
+
+# <<< token-activity <<<

@@ -22,3 +22,7 @@ docs/images/*.png
 # Provider research: the directory is the source of truth, the zip is a local
 # archive twin of it — committing both would let the two copies drift
 docs/provider-research/*.zip
+
+# September session scratch, unrelated to this plugin. Leave the files; do not
+# commit them and do not delete them.
+research/

@@ -103,7 +103,7 @@ test('settings panel contains the Legend & notes section with the full original 
   await new Promise(resolve => setImmediate(resolve))
   sandbox.__resetHooksState()
   const text = textOf(collect(sandbox.ProviderSettingsPanel({ rest: sandbox.__ctxRest })))
-  assert.ok(text.includes('Legend & notes'), 'settings panel must contain the help section title')
+  assert.ok(text.includes('How to read the board'), 'settings panel must contain the help section title')
   for (const line of WHOLE_HELP_TEXTS) {
     assert.ok(text.includes(line), `help text must be migrated verbatim: ${line}`)
   }
@@ -112,7 +112,8 @@ test('settings panel contains the Legend & notes section with the full original 
 test('面板里没有中文用户可见字符串（CONTRIBUTING：每个可见字符串必须英文）', () => {
   // 注释（含设计说明）允许中文；用户可见字符串不允许。命令别名允许中英并列，
   // 那是搜索用的附加别名，不是界面文案。
-  const withoutBlocks = rawSource.replace(/\/\*[\s\S]*?\*\//g, '')
+  const withoutLocale = rawSource.replace(/\/\/ >>> locale-strings >>>[\s\S]*?\/\/ <<< locale-strings <<</g, '')
+  const withoutBlocks = withoutLocale.replace(/\/\*[\s\S]*?\*\//g, '')
   const withoutComments = withoutBlocks.replace(/(^|[^:])\/\/[^\n]*/g, '$1')
   const offenders = withoutComments
     .split('\n')

@@ -18,8 +18,8 @@ test('provider settings UI saves visibility and refreshes meter views', () => {
 test('provider settings card shows what the provider needs and what is optional', () => {
   assert.match(pluginSource, /'data-credentials': 'requires'/)
   assert.match(pluginSource, /'data-credentials': 'optional'/)
-  assert.match(pluginSource, /children: `Needs: \$\{provider\.credentials\.requires\}`/)
-  assert.match(pluginSource, /children: `Optional: \$\{provider\.credentials\.optional\}`/)
+  assert.match(pluginSource, /children: `\$\{t\(locale, 'needs'\)\}: \$\{provider\.credentials\.requires\}`/)
+  assert.match(pluginSource, /children: `\$\{t\(locale, 'optional'\)\}: \$\{provider\.credentials\.optional\}`/)
   // 缺字段（老后端 / 没有凭据可说的家）不画，也不炸。
   assert.match(
     pluginSource,

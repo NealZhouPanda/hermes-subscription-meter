@@ -1,5 +1,15 @@
 # Development Log
 
+2026-10-23 — 0.7.0 released: the settings page, laid out, in three languages
+
+- `plugin.yaml` goes 0.6.0 → 0.7.0. This release is the settings page. The quota board is unchanged.
+- **Token totals sit in their own strip, above a one-year activity grid.** Five numbers — total tokens, the busiest day, the most-used model, the daily average, and how many days had any use — live in one panel, split by hairlines. Under that, a GitHub-style grid of round dots covers a fixed year, with Daily / Weekly / Cumulative as text tabs and month labels under the grid. Days with no ledger stay solid grey so the outline does not fall apart. The numbers come from a read-only `GET /usage-heatmap` that sums `session_model_usage` across this install's profile ledgers. A failed load says so; it does not go blank.
+- **Providers are capsules.** Each card is collapsed to a name and its switches. Opening one grows the card, and on a wide window that card takes the row to itself. Up to three cards sit on a line; a name that would be cut off wraps the whole card instead.
+- **How to read the board stays open.** High-contrast colors and the plugin language are one settings block: the title on the left, the switch or the language menu on the right. Both are saved on this computer, not in the backend settings.
+- **Three languages.** zh-Hans, zh-Hant, and English. The language names themselves are not translated. English is the default. Chinese copy lives only in the marked string block, so a test can still prove the rest of the file has none. The quota board's own cell text is still English; that was left for a later pass.
+- Not in this release, still recorded from 2026-10-09: OpenRouter's calendar-window column labels, the marquee key and pointer-capture follow-ups, dropping the unreachable NEW capsule, and a rendered-level test for the credential lines. `research/` is now ignored and was not deleted.
+
+
 2026-10-09 — 0.6.0 released: a sale ticker under the board, and the row that was never there
 
 - `plugin.yaml` goes 0.5.1 → 0.6.0, tagging three changes that had accumulated since the last release: OpenRouter becomes a visible provider row (2026-10-04), the settings page says in one line what each provider's credential needs (2026-10-03), and the panel gains a third layer below the balance zone.
