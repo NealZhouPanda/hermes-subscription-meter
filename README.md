@@ -8,7 +8,7 @@ Under the board sits a **sale ticker**: the models the Nous Portal is currently 
 
 ## Screenshot
 
-![Time × quota matrix: one provider per row](docs/images/matrix.png)
+![Settings page: the quota board, token activity, and provider switches](docs/images/matrix.png)
 
 ## Install
 
